@@ -151,7 +151,7 @@ def generate_report(topic):
         
         # 2. Initialize LLM - استخدام النموذج الصحيح
         llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             temperature=0.4,
             google_api_key=api_key,
             max_retries=3
@@ -327,3 +327,4 @@ if __name__ == '__main__':
         logger.error(f"❌ Failed to start bot: {e}", exc_info=True)
         print(f"❌ Startup Error: {e}")
         exit(1)
+
