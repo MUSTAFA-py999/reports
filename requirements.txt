@@ -4,5 +4,5 @@ requests
 langchain-google-genai
 langchain-core
 pydantic
-
 jinja2
+google-generativeai
