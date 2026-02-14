@@ -125,7 +125,6 @@ TEMPLATES = {
         color: #7f8c8d;
         font-size: 12px;
     }
-    .page-number { text-align: center; margin-top: 30px; color: #95a5a6; }
 </style>
 </head>
 <body>
@@ -176,20 +175,14 @@ TEMPLATES = {
         text-align: right;
         line-height: 1.8;
         color: #1a1a2e;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        background-attachment: fixed;
     }
     .container {
         background: white;
         padding: 40px;
-        border-radius: 15px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
     }
     h1 {
         text-align: center;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: #667eea;
         font-size: 36px;
         margin-bottom: 15px;
         font-weight: bold;
@@ -221,11 +214,10 @@ TEMPLATES = {
         color: #2d3748;
     }
     .intro, .conclusion {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        background: #f5f7fa;
         padding: 30px;
         border-radius: 15px;
         margin: 30px 0;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
     }
     .footer {
         text-align: center;
@@ -402,6 +394,7 @@ TEMPLATES = {
     h2:nth-of-type(3) { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
     h2:nth-of-type(4) { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
     h2:nth-of-type(5) { background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); }
+    h2:nth-of-type(6) { background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); }
     p {
         text-align: justify;
         line-height: 1.8;
@@ -512,12 +505,6 @@ TEMPLATES = {
     }
     .section {
         margin-bottom: 40px;
-    }
-    .signature-area {
-        margin-top: 80px;
-        text-align: left;
-        padding: 30px;
-        border-top: 2px solid #cbd5e0;
     }
     .footer {
         text-align: center;
@@ -666,31 +653,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name
     
     welcome = f"""
-🎓 *مرحباً {user_name}!*
+🎓 <b>مرحباً {user_name}!</b>
 
-أهلاً بك في *بوت التقارير الأكاديمية الاحترافي* 📚
+أهلاً بك في <b>بوت التقارير الأكاديمية الاحترافي</b> 📚
 
-✨ *المميزات:*
+✨ <b>المميزات:</b>
 - 5 أنماط كتابة مختلفة
 - 5 قوالب تصميم احترافية
 - تقارير مخصصة حسب احتياجاتك
 - جودة عالية وسرعة فائقة
 
-📝 *كيف تبدأ؟*
+📝 <b>كيف تبدأ؟</b>
 فقط أرسل لي موضوع التقرير وسأقوم بإنشاء تقرير احترافي بصيغة PDF
 
-💡 *أمثلة للمواضيع:*
+💡 <b>أمثلة للمواضيع:</b>
 - الذكاء الاصطناعي وتطبيقاته
 - التغير المناخي والحلول المستدامة
 - الطاقة المتجددة في المستقبل
 - الأمن السيبراني في العصر الرقمي
 
-⏱️ *وقت الإنشاء: 30-60 ثانية*
+⏱️ <b>وقت الإنشاء: 30-60 ثانية</b>
 
-🚀 *ابدأ الآن بإرسال موضوع تقريرك!*
+🚀 <b>ابدأ الآن بإرسال موضوع تقريرك!</b>
 """
     
-    await update.message.reply_text(welcome, parse_mode='Markdown')
+    await update.message.reply_text(welcome, parse_mode='HTML')
     logger.info(f"✅ User {user_id} ({user_name}) started the bot")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -715,10 +702,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # استخدام HTML escape للنص
+    safe_topic = topic.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
+    
     await update.message.reply_text(
-        f"📝 *تم استلام الموضوع:*\n_{topic}_\n\n🎨 *اختر نمط الكتابة المناسب:*",
+        f"📝 <b>تم استلام الموضوع:</b>\n<i>{safe_topic}</i>\n\n🎨 <b>اختر نمط الكتابة المناسب:</b>",
         reply_markup=reply_markup,
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -743,9 +733,9 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     style_name = WRITING_STYLES[style]["name"]
     await query.edit_message_text(
-        f"✅ *تم اختيار:* {style_name}\n\n🎨 *الآن اختر تصميم التقرير:*",
+        f"✅ <b>تم اختيار:</b> {style_name}\n\n🎨 <b>الآن اختر تصميم التقرير:</b>",
         reply_markup=reply_markup,
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -764,10 +754,14 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     style = session["style"]
     
     template_name = TEMPLATES[template]["name"]
+    style_name = WRITING_STYLES[style]["name"]
+    
+    # استخدام HTML escape
+    safe_topic = topic.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
     
     await query.edit_message_text(
-        f"⏳ *جاري إنشاء التقرير...*\n\n📝 الموضوع: _{topic}_\n✍️ النمط: {WRITING_STYLES[style]['name']}\n🎨 القالب: {template_name}\n\n⏱️ يستغرق 30-60 ثانية...",
-        parse_mode='Markdown'
+        f"⏳ <b>جاري إنشاء التقرير...</b>\n\n📝 الموضوع: <i>{safe_topic}</i>\n✍️ النمط: {style_name}\n🎨 القالب: {template_name}\n\n⏱️ يستغرق 30-60 ثانية...",
+        parse_mode='HTML'
     )
     
     try:
@@ -777,20 +771,25 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:30])
             filename = f"{safe_name}.pdf"
             
+            # استخدام HTML escape للعنوان
+            safe_title = title.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
+            
+            caption = f"""
+✅ <b>تم إنشاء التقرير بنجاح!</b>
+
+📄 <b>العنوان:</b> {safe_title}
+✍️ <b>النمط:</b> {style_name}
+🎨 <b>القالب:</b> {template_name}
+
+🔄 <b>لإنشاء تقرير جديد، أرسل موضوعاً آخر!</b>
+"""
+            
             await context.bot.send_document(
                 chat_id=query.message.chat_id,
                 document=BytesIO(pdf_bytes),
                 filename=filename,
-                caption=f"""
-✅ *تم إنشاء التقرير بنجاح!*
-
-📄 *العنوان:* {title}
-✍️ *النمط:* {WRITING_STYLES[style]['name']}
-🎨 *القالب:* {template_name}
-
-🔄 *لإنشاء تقرير جديد، أرسل موضوعاً آخر!*
-""",
-                parse_mode='Markdown'
+                caption=caption,
+                parse_mode='HTML'
             )
             
             await query.message.delete()
@@ -799,20 +798,29 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # مسح الجلسة
             del user_sessions[user_id]
         else:
+            error_msg = str(title).replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
             await query.edit_message_text(
-                f"❌ *حدث خطأ*\n\n{title}\n\n🔄 حاول مرة أخرى",
-                parse_mode='Markdown'
+                f"❌ <b>حدث خطأ</b>\n\n{error_msg[:300]}\n\n🔄 حاول مرة أخرى",
+                parse_mode='HTML'
             )
             
     except Exception as e:
         logger.error(f"❌ Error: {e}", exc_info=True)
+        error_text = str(e)[:200].replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
         await query.edit_message_text(
-            f"❌ *خطأ غير متوقع*\n\n`{str(e)[:200]}`\n\n🔄 حاول مرة أخرى",
-            parse_mode='Markdown'
+            f"❌ <b>خطأ غير متوقع</b>\n\n<code>{error_text}</code>\n\n🔄 حاول مرة أخرى",
+            parse_mode='HTML'
         )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Update error: {context.error}", exc_info=context.error)
+    try:
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
+                "❌ حدث خطأ في معالجة طلبك. حاول مرة أخرى."
+            )
+    except:
+        pass
 
 # ==========================================
 # Main
@@ -839,7 +847,7 @@ if __name__ == '__main__':
         
         logger.info("🤖 Bot Production Ready!")
         print("=" * 60)
-        print("✅ Academic Reports Bot - Production Version")
+        print("✅ Academic Reports Bot - Production Version 2.0")
         print("=" * 60)
         
         application.run_polling(allowed_updates=Update.ALL_TYPES)
