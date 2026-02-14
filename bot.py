@@ -1,10 +1,9 @@
 import os
-import requests
 import threading
 import logging
 from flask import Flask
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
@@ -13,6 +12,7 @@ from jinja2 import Template
 from typing import List
 from io import BytesIO
 from weasyprint import HTML
+from datetime import datetime
 
 # ==========================================
 # إعداد Logging
@@ -30,15 +30,20 @@ flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "✅ iLovePDF Bot is Running!"
+    return "✅ Academic Reports Bot - Production Ready!"
 
 @flask_app.route('/health')
 def health():
-    return {"status": "healthy", "bot": "active"}, 200
+    return {"status": "healthy", "bot": "active", "version": "2.0"}, 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
+# ==========================================
+# User Session Storage
+# ==========================================
+user_sessions = {}
 
 # ==========================================
 # AI Models
@@ -50,158 +55,603 @@ class Section(BaseModel):
 class AcademicReport(BaseModel):
     title: str = Field(description="عنوان التقرير")
     introduction: str = Field(description="المقدمة")
-    sections: List[Section] = Field(description="الأقسام (3-5 أقسام)")
+    sections: List[Section] = Field(description="الأقسام")
     conclusion: str = Field(description="الخاتمة")
 
 # ==========================================
-# HTML Template
+# HTML Templates
 # ==========================================
-HTML_TEMPLATE = """
+TEMPLATES = {
+    "classic": {
+        "name": "🎓 كلاسيكي أكاديمي",
+        "description": "تصميم تقليدي احترافي",
+        "html": """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <style>
-    @page {
-        size: A4;
-        margin: 2cm;
-    }
+    @page { size: A4; margin: 2.5cm; }
     body {
-        font-family: 'Arial', 'Traditional Arabic', sans-serif;
+        font-family: 'Traditional Arabic', 'Arial', sans-serif;
         direction: rtl;
         text-align: right;
-        line-height: 1.8;
-        color: #333;
+        line-height: 1.9;
+        color: #2c3e50;
+    }
+    .header {
+        text-align: center;
+        border-bottom: 4px solid #34495e;
+        padding-bottom: 20px;
+        margin-bottom: 40px;
     }
     h1 {
-        text-align: center;
-        border-bottom: 3px solid #0066cc;
-        padding-bottom: 15px;
-        color: #0066cc;
-        margin-bottom: 30px;
-        font-size: 28px;
+        color: #2c3e50;
+        font-size: 32px;
+        margin-bottom: 10px;
+    }
+    .subtitle {
+        color: #7f8c8d;
+        font-size: 14px;
+        margin-top: 10px;
     }
     h2 {
-        color: #0066cc;
-        margin-top: 25px;
-        border-right: 5px solid #0066cc;
+        color: #34495e;
+        margin-top: 30px;
+        border-right: 5px solid #3498db;
         padding-right: 15px;
-        padding: 10px 15px;
-        font-size: 20px;
+        padding: 12px 15px;
+        background: #ecf0f1;
+        font-size: 22px;
     }
     p {
         text-align: justify;
-        line-height: 1.8;
-        margin-bottom: 15px;
-        font-size: 14px;
+        line-height: 1.9;
+        margin-bottom: 16px;
+        font-size: 15px;
     }
     .intro, .conclusion {
-        background-color: #f5f5f5;
-        padding: 20px;
-        border-radius: 5px;
-        margin: 20px 0;
+        background-color: #ecf0f1;
+        padding: 25px;
+        border-radius: 8px;
+        margin: 25px 0;
+        border-right: 5px solid #3498db;
     }
     .footer {
         text-align: center;
-        margin-top: 50px;
-        padding-top: 20px;
-        border-top: 2px solid #ddd;
-        color: #999;
-        font-size: 11px;
+        margin-top: 60px;
+        padding-top: 25px;
+        border-top: 3px solid #bdc3c7;
+        color: #7f8c8d;
+        font-size: 12px;
     }
+    .page-number { text-align: center; margin-top: 30px; color: #95a5a6; }
 </style>
 </head>
 <body>
-<h1>{{ title }}</h1>
+<div class="header">
+    <h1>{{ title }}</h1>
+    <div class="subtitle">{{ date }} | تقرير أكاديمي</div>
+</div>
 
 <div class="intro">
-    <h2>المقدمة</h2>
+    <h2>📚 المقدمة</h2>
     {{ intro | safe }}
 </div>
 
 {% for section in sections %}
 <div>
-    <h2>{{ section.title }}</h2>
+    <h2>{{ loop.index }}. {{ section.title }}</h2>
     {{ section.content | safe }}
 </div>
 {% endfor %}
 
 <div class="conclusion">
-    <h2>الخاتمة</h2>
+    <h2>🎯 الخاتمة</h2>
     {{ conc | safe }}
 </div>
 
-<div class="footer">تم الإنشاء بواسطة Telegram Bot</div>
+<div class="footer">
+    <p>تم الإنشاء بواسطة Academic Reports Bot</p>
+    <p>{{ date }}</p>
+</div>
 </body>
 </html>
 """
+    },
+    
+    "modern": {
+        "name": "🚀 عصري حديث",
+        "description": "تصميم عصري بألوان جذابة",
+        "html": """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<style>
+    @page { size: A4; margin: 2cm; }
+    body {
+        font-family: 'Arial', sans-serif;
+        direction: rtl;
+        text-align: right;
+        line-height: 1.8;
+        color: #1a1a2e;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background-attachment: fixed;
+    }
+    .container {
+        background: white;
+        padding: 40px;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    h1 {
+        text-align: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 36px;
+        margin-bottom: 15px;
+        font-weight: bold;
+    }
+    .date-badge {
+        text-align: center;
+        background: #667eea;
+        color: white;
+        padding: 8px 20px;
+        border-radius: 20px;
+        display: inline-block;
+        font-size: 13px;
+        margin-bottom: 30px;
+    }
+    h2 {
+        color: #667eea;
+        margin-top: 35px;
+        padding: 15px 20px;
+        background: linear-gradient(90deg, #f8f9fa 0%, white 100%);
+        border-right: 6px solid #764ba2;
+        border-radius: 0 10px 10px 0;
+        font-size: 24px;
+    }
+    p {
+        text-align: justify;
+        line-height: 1.8;
+        margin-bottom: 18px;
+        font-size: 15px;
+        color: #2d3748;
+    }
+    .intro, .conclusion {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        padding: 30px;
+        border-radius: 15px;
+        margin: 30px 0;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    .footer {
+        text-align: center;
+        margin-top: 50px;
+        padding: 20px;
+        background: #f8f9fa;
+        border-radius: 10px;
+        color: #718096;
+    }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>{{ title }}</h1>
+    <div style="text-align: center;">
+        <span class="date-badge">📅 {{ date }}</span>
+    </div>
+
+    <div class="intro">
+        <h2>🌟 المقدمة</h2>
+        {{ intro | safe }}
+    </div>
+
+    {% for section in sections %}
+    <div>
+        <h2>{{ loop.index }}. {{ section.title }}</h2>
+        {{ section.content | safe }}
+    </div>
+    {% endfor %}
+
+    <div class="conclusion">
+        <h2>✨ الخاتمة</h2>
+        {{ conc | safe }}
+    </div>
+
+    <div class="footer">
+        <p><strong>Academic Reports Bot</strong></p>
+        <p>{{ date }}</p>
+    </div>
+</div>
+</body>
+</html>
+"""
+    },
+    
+    "minimal": {
+        "name": "⚪ بسيط أنيق",
+        "description": "تصميم نظيف ومرتب",
+        "html": """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<style>
+    @page { size: A4; margin: 3cm; }
+    body {
+        font-family: 'Arial', sans-serif;
+        direction: rtl;
+        text-align: right;
+        line-height: 2;
+        color: #333;
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    h1 {
+        text-align: center;
+        font-size: 32px;
+        font-weight: 300;
+        letter-spacing: 2px;
+        margin-bottom: 40px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid #e0e0e0;
+    }
+    h2 {
+        font-size: 20px;
+        font-weight: 500;
+        margin-top: 40px;
+        margin-bottom: 20px;
+        color: #555;
+    }
+    p {
+        text-align: justify;
+        line-height: 2;
+        margin-bottom: 20px;
+        font-size: 14px;
+        color: #666;
+    }
+    .section {
+        margin-bottom: 50px;
+    }
+    .footer {
+        text-align: center;
+        margin-top: 80px;
+        padding-top: 30px;
+        border-top: 1px solid #e0e0e0;
+        font-size: 11px;
+        color: #999;
+    }
+</style>
+</head>
+<body>
+    <h1>{{ title }}</h1>
+    
+    <div class="section">
+        <h2>المقدمة</h2>
+        {{ intro | safe }}
+    </div>
+
+    {% for section in sections %}
+    <div class="section">
+        <h2>{{ section.title }}</h2>
+        {{ section.content | safe }}
+    </div>
+    {% endfor %}
+
+    <div class="section">
+        <h2>الخاتمة</h2>
+        {{ conc | safe }}
+    </div>
+
+    <div class="footer">
+        <p>{{ date }}</p>
+    </div>
+</body>
+</html>
+"""
+    },
+    
+    "colorful": {
+        "name": "🎨 ملون إبداعي",
+        "description": "تصميم ملون ومميز",
+        "html": """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<style>
+    @page { size: A4; margin: 2cm; }
+    body {
+        font-family: 'Arial', sans-serif;
+        direction: rtl;
+        text-align: right;
+        line-height: 1.8;
+        color: #2d3748;
+    }
+    .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+        padding: 40px;
+        text-align: center;
+        border-radius: 15px;
+        margin-bottom: 40px;
+    }
+    h1 {
+        color: white;
+        font-size: 34px;
+        margin: 0;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    .date {
+        color: white;
+        margin-top: 15px;
+        font-size: 14px;
+    }
+    h2 {
+        font-size: 24px;
+        margin-top: 35px;
+        padding: 15px 20px;
+        border-radius: 10px;
+        color: white;
+        font-weight: bold;
+    }
+    h2:nth-of-type(1) { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+    h2:nth-of-type(2) { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+    h2:nth-of-type(3) { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+    h2:nth-of-type(4) { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
+    h2:nth-of-type(5) { background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); }
+    p {
+        text-align: justify;
+        line-height: 1.8;
+        margin-bottom: 18px;
+        font-size: 15px;
+    }
+    .section {
+        background: #f8f9fa;
+        padding: 25px;
+        border-radius: 12px;
+        margin: 25px 0;
+    }
+    .footer {
+        text-align: center;
+        margin-top: 50px;
+        padding: 25px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+    }
+</style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ title }}</h1>
+        <div class="date">📅 {{ date }}</div>
+    </div>
+
+    <div class="section">
+        <h2>📚 المقدمة</h2>
+        {{ intro | safe }}
+    </div>
+
+    {% for section in sections %}
+    <div class="section">
+        <h2>{{ loop.index }}. {{ section.title }}</h2>
+        {{ section.content | safe }}
+    </div>
+    {% endfor %}
+
+    <div class="section">
+        <h2>🎯 الخاتمة</h2>
+        {{ conc | safe }}
+    </div>
+
+    <div class="footer">
+        <p><strong>Academic Reports Bot</strong></p>
+        <p>{{ date }}</p>
+    </div>
+</body>
+</html>
+"""
+    },
+    
+    "professional": {
+        "name": "💼 احترافي رسمي",
+        "description": "تصميم رسمي للأعمال",
+        "html": """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<style>
+    @page { size: A4; margin: 2.5cm; }
+    body {
+        font-family: 'Traditional Arabic', 'Times New Roman', serif;
+        direction: rtl;
+        text-align: right;
+        line-height: 1.9;
+        color: #1a202c;
+    }
+    .letterhead {
+        border: 3px solid #2c5282;
+        padding: 30px;
+        margin-bottom: 40px;
+        background: linear-gradient(to bottom, #f7fafc 0%, white 100%);
+    }
+    h1 {
+        text-align: center;
+        color: #2c5282;
+        font-size: 30px;
+        margin: 0;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .doc-info {
+        text-align: center;
+        margin-top: 20px;
+        padding: 15px;
+        background: #edf2f7;
+        border-radius: 5px;
+    }
+    h2 {
+        color: #2c5282;
+        margin-top: 35px;
+        padding: 12px 20px;
+        background: #edf2f7;
+        border-right: 6px solid #2c5282;
+        font-size: 22px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    p {
+        text-align: justify;
+        line-height: 1.9;
+        margin-bottom: 18px;
+        font-size: 15px;
+    }
+    .section {
+        margin-bottom: 40px;
+    }
+    .signature-area {
+        margin-top: 80px;
+        text-align: left;
+        padding: 30px;
+        border-top: 2px solid #cbd5e0;
+    }
+    .footer {
+        text-align: center;
+        margin-top: 50px;
+        padding: 20px;
+        border-top: 3px solid #2c5282;
+        color: #4a5568;
+        font-size: 12px;
+    }
+</style>
+</head>
+<body>
+    <div class="letterhead">
+        <h1>{{ title }}</h1>
+        <div class="doc-info">
+            <strong>تاريخ الإصدار:</strong> {{ date }}<br>
+            <strong>نوع الوثيقة:</strong> تقرير أكاديمي
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>المقدمة</h2>
+        {{ intro | safe }}
+    </div>
+
+    {% for section in sections %}
+    <div class="section">
+        <h2>{{ loop.index }}. {{ section.title }}</h2>
+        {{ section.content | safe }}
+    </div>
+    {% endfor %}
+
+    <div class="section">
+        <h2>الخاتمة</h2>
+        {{ conc | safe }}
+    </div>
+
+    <div class="footer">
+        <p><strong>Academic Reports Bot</strong></p>
+        <p>هذه وثيقة رسمية تم إنشاؤها إلكترونياً</p>
+        <p>{{ date }}</p>
+    </div>
+</body>
+</html>
+"""
+    }
+}
+
+# ==========================================
+# Writing Styles
+# ==========================================
+WRITING_STYLES = {
+    "academic": {
+        "name": "🎓 أكاديمي متقدم",
+        "prompt": "اكتب بأسلوب أكاديمي رسمي جداً مع استخدام مصطلحات علمية ولغة فصحى متقدمة. استخدم جمل معقدة ومفردات متخصصة."
+    },
+    "simple": {
+        "name": "📖 مبسط سهل",
+        "prompt": "اكتب بأسلوب مبسط وسهل الفهم مناسب لطلاب المدارس. استخدم جمل قصيرة وواضحة وأمثلة بسيطة."
+    },
+    "detailed": {
+        "name": "📚 تفصيلي شامل",
+        "prompt": "اكتب بأسلوب تفصيلي جداً مع شرح كل نقطة بعمق. أضف أمثلة وتفاصيل دقيقة وتحليلات متعمقة."
+    },
+    "creative": {
+        "name": "✨ إبداعي ملهم",
+        "prompt": "اكتب بأسلوب إبداعي جذاب مع استخدام تشبيهات واستعارات. اجعل المحتوى ممتعاً وملهماً."
+    },
+    "formal": {
+        "name": "💼 رسمي احترافي",
+        "prompt": "اكتب بأسلوب رسمي احترافي مناسب للأعمال والمؤسسات. استخدم لغة محترمة ودقيقة."
+    }
+}
 
 # ==========================================
 # Generate Report Function
 # ==========================================
-def generate_report(topic):
+def generate_report(topic, style="academic", template="classic"):
     try:
-        # 1. Check API Key
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            logger.error("❌ GOOGLE_API_KEY not found")
             raise Exception("API Key غير موجود")
         
-        logger.info(f"📝 Generating report for: {topic}")
+        logger.info(f"📝 Generating: {topic} | Style: {style} | Template: {template}")
         
-        # 2. Initialize LLM - استخدام النموذج الصحيح
         llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=0.4,
+            model="gemini-1.5-flash",
+            temperature=0.5,
             google_api_key=api_key,
             max_retries=3
         )
         
-        # 3. Create Parser
         parser = PydanticOutputParser(pydantic_object=AcademicReport)
         
-        # 4. Create Prompt
+        style_instruction = WRITING_STYLES[style]["prompt"]
+        
         prompt = PromptTemplate(
             input_variables=["topic"],
             partial_variables={"format_instructions": parser.get_format_instructions()},
-            template="""أنت كاتب أكاديمي محترف. اكتب تقريرًا مفصلاً وشاملاً عن:
+            template=f"""أنت كاتب أكاديمي محترف. اكتب تقريرًا مفصلاً وشاملاً عن:
 
-الموضوع: {topic}
+الموضوع: {{topic}}
+
+أسلوب الكتابة: {style_instruction}
 
 يجب أن يحتوي التقرير على:
 - مقدمة شاملة (150-200 كلمة)
-- 3-4 أقسام رئيسية (كل قسم 200-250 كلمة)
+- 3-4 أقسام رئيسية (كل قسم 200-300 كلمة)
 - خاتمة موجزة (100-150 كلمة)
 
-اكتب بلغة عربية فصحى وأسلوب أكاديمي احترافي.
-
-{format_instructions}"""
+{{format_instructions}}"""
         )
         
-        # 5. Generate Report
-        logger.info("🤖 Calling Gemini API...")
         report = (prompt | llm | parser).invoke({"topic": topic})
-        logger.info("✅ Report generated successfully")
+        logger.info("✅ Report generated")
         
-        # 6. Clean Text
         def clean(text):
             paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
             return "".join([f"<p>{p}</p>" for p in paragraphs])
         
-        # 7. Render HTML
-        html = Template(HTML_TEMPLATE).render(
+        current_date = datetime.now().strftime("%Y/%m/%d")
+        
+        html = Template(TEMPLATES[template]["html"]).render(
             title=report.title,
             intro=clean(report.introduction),
             sections=[{'title': s.title, 'content': clean(s.content)} for s in report.sections],
-            conc=clean(report.conclusion)
+            conc=clean(report.conclusion),
+            date=current_date
         )
         
-        logger.info("📄 Converting HTML to PDF...")
-        
-        # 8. Convert to PDF using WeasyPrint
+        logger.info("📄 Converting to PDF...")
         pdf_bytes = HTML(string=html).write_pdf()
         
-        logger.info("✅ PDF created successfully")
+        logger.info("✅ PDF created")
         return pdf_bytes, report.title
         
     except Exception as e:
@@ -212,119 +662,188 @@ def generate_report(topic):
 # Telegram Handlers
 # ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome = """
-🤖 *مرحباً بك في بوت التقارير الأكاديمية!*
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    
+    welcome = f"""
+🎓 *مرحباً {user_name}!*
 
-📝 *كيف تستخدم البوت؟*
-فقط أرسل لي عنوان الموضوع وسأقوم بإنشاء تقرير أكاديمي احترافي بصيغة PDF
+أهلاً بك في *بوت التقارير الأكاديمية الاحترافي* 📚
 
-✨ *أمثلة:*
-- الذكاء الاصطناعي
-- التغير المناخي  
-- الطاقة المتجددة
-- الأمن السيبراني
+✨ *المميزات:*
+- 5 أنماط كتابة مختلفة
+- 5 قوالب تصميم احترافية
+- تقارير مخصصة حسب احتياجاتك
+- جودة عالية وسرعة فائقة
+
+📝 *كيف تبدأ؟*
+فقط أرسل لي موضوع التقرير وسأقوم بإنشاء تقرير احترافي بصيغة PDF
+
+💡 *أمثلة للمواضيع:*
+- الذكاء الاصطناعي وتطبيقاته
+- التغير المناخي والحلول المستدامة
+- الطاقة المتجددة في المستقبل
+- الأمن السيبراني في العصر الرقمي
 
 ⏱️ *وقت الإنشاء: 30-60 ثانية*
-    """
+
+🚀 *ابدأ الآن بإرسال موضوع تقريرك!*
+"""
+    
     await update.message.reply_text(welcome, parse_mode='Markdown')
-    logger.info(f"✅ User {update.effective_user.id} started the bot")
+    logger.info(f"✅ User {user_id} ({user_name}) started the bot")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = update.message.text.strip()
+    user_id = update.effective_user.id
     
-    if len(topic) < 3:
-        await update.message.reply_text("❌ الموضوع قصير جداً! أرسل موضوعاً أطول من 3 أحرف.")
+    if len(topic) < 5:
+        await update.message.reply_text("❌ الموضوع قصير جداً! أرسل موضوعاً أطول من 5 أحرف.")
         return
     
-    if len(topic) > 100:
-        await update.message.reply_text("❌ الموضوع طويل جداً! حاول اختصاره لأقل من 100 حرف.")
+    if len(topic) > 150:
+        await update.message.reply_text("❌ الموضوع طويل جداً! حاول اختصاره لأقل من 150 حرف.")
         return
     
-    msg = await update.message.reply_text(
-        f"⏳ جاري العمل على تقرير:\n*{topic}*\n\n⏱️ قد يستغرق الأمر 30-60 ثانية...",
+    # حفظ الموضوع في الجلسة
+    user_sessions[user_id] = {"topic": topic}
+    
+    # إنشاء قائمة اختيار نمط الكتابة
+    keyboard = []
+    for key, value in WRITING_STYLES.items():
+        keyboard.append([InlineKeyboardButton(value["name"], callback_data=f"style_{key}")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"📝 *تم استلام الموضوع:*\n_{topic}_\n\n🎨 *اختر نمط الكتابة المناسب:*",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    style = query.data.replace("style_", "")
+    
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
+        return
+    
+    user_sessions[user_id]["style"] = style
+    
+    # إنشاء قائمة اختيار القالب
+    keyboard = []
+    for key, value in TEMPLATES.items():
+        keyboard.append([InlineKeyboardButton(f"{value['name']}", callback_data=f"template_{key}")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    style_name = WRITING_STYLES[style]["name"]
+    await query.edit_message_text(
+        f"✅ *تم اختيار:* {style_name}\n\n🎨 *الآن اختر تصميم التقرير:*",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    template = query.data.replace("template_", "")
+    
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
+        return
+    
+    session = user_sessions[user_id]
+    topic = session["topic"]
+    style = session["style"]
+    
+    template_name = TEMPLATES[template]["name"]
+    
+    await query.edit_message_text(
+        f"⏳ *جاري إنشاء التقرير...*\n\n📝 الموضوع: _{topic}_\n✍️ النمط: {WRITING_STYLES[style]['name']}\n🎨 القالب: {template_name}\n\n⏱️ يستغرق 30-60 ثانية...",
         parse_mode='Markdown'
     )
     
     try:
-        logger.info(f"📝 User {update.effective_user.id} requested: {topic}")
-        
-        pdf_bytes, result = generate_report(topic)
+        pdf_bytes, title = generate_report(topic, style, template)
         
         if pdf_bytes:
-            # إنشاء اسم ملف آمن
-            safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in result[:30])
+            safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:30])
             filename = f"{safe_name}.pdf"
             
-            await update.message.reply_document(
+            await context.bot.send_document(
+                chat_id=query.message.chat_id,
                 document=BytesIO(pdf_bytes),
                 filename=filename,
-                caption=f"✅ *تم إنشاء التقرير بنجاح!*\n\n📄 *{result}*\n\n🔗 يمكنك تحميله الآن",
+                caption=f"""
+✅ *تم إنشاء التقرير بنجاح!*
+
+📄 *العنوان:* {title}
+✍️ *النمط:* {WRITING_STYLES[style]['name']}
+🎨 *القالب:* {template_name}
+
+🔄 *لإنشاء تقرير جديد، أرسل موضوعاً آخر!*
+""",
                 parse_mode='Markdown'
             )
-            logger.info(f"✅ PDF sent successfully to user {update.effective_user.id}")
+            
+            await query.message.delete()
+            logger.info(f"✅ PDF sent to user {user_id}")
+            
+            # مسح الجلسة
+            del user_sessions[user_id]
         else:
-            error_msg = f"❌ *حدث خطأ أثناء إنشاء التقرير*\n\n📋 التفاصيل:\n`{result}`\n\n💡 *تأكد من:*\n• صحة موضوع التقرير\n• الاتصال بالإنترنت\n\n🔄 حاول مرة أخرى"
-            await update.message.reply_text(error_msg, parse_mode='Markdown')
-            logger.error(f"❌ Failed for user {update.effective_user.id}: {result}")
+            await query.edit_message_text(
+                f"❌ *حدث خطأ*\n\n{title}\n\n🔄 حاول مرة أخرى",
+                parse_mode='Markdown'
+            )
             
     except Exception as e:
-        logger.error(f"❌ Handler error for user {update.effective_user.id}: {e}", exc_info=True)
-        await update.message.reply_text(
-            f"❌ *خطأ غير متوقع*\n\n`{str(e)[:200]}`\n\n🔄 حاول مرة أخرى لاحقاً",
+        logger.error(f"❌ Error: {e}", exc_info=True)
+        await query.edit_message_text(
+            f"❌ *خطأ غير متوقع*\n\n`{str(e)[:200]}`\n\n🔄 حاول مرة أخرى",
             parse_mode='Markdown'
         )
-    
-    finally:
-        try:
-            await msg.delete()
-        except:
-            pass
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Update error: {context.error}", exc_info=context.error)
-    try:
-        if update and update.effective_message:
-            await update.effective_message.reply_text(
-                "❌ حدث خطأ في معالجة طلبك. حاول مرة أخرى."
-            )
-    except:
-        pass
 
 # ==========================================
 # Main
 # ==========================================
 if __name__ == '__main__':
-    # Start Flask in background
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    logger.info("🌐 Flask server started on port 10000")
+    logger.info("🌐 Flask server started")
     
-    # Start Telegram Bot
     token = os.getenv("TELEGRAM_TOKEN")
     
     if not token:
-        logger.error("❌ TELEGRAM_TOKEN not found in environment variables")
-        print("❌ Error: TELEGRAM_TOKEN is missing!")
+        logger.error("❌ TELEGRAM_TOKEN missing")
         exit(1)
     
     try:
         application = ApplicationBuilder().token(token).build()
         
-        # Add Handlers
         application.add_handler(CommandHandler('start', start))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        application.add_handler(CallbackQueryHandler(style_callback, pattern='^style_'))
+        application.add_handler(CallbackQueryHandler(template_callback, pattern='^template_'))
         application.add_error_handler(error_handler)
         
-        logger.info("🤖 Bot started successfully!")
-        print("=" * 50)
-        print("✅ Bot is now running...")
-        print("=" * 50)
+        logger.info("🤖 Bot Production Ready!")
+        print("=" * 60)
+        print("✅ Academic Reports Bot - Production Version")
+        print("=" * 60)
         
-        # Run Bot
         application.run_polling(allowed_updates=Update.ALL_TYPES)
         
     except Exception as e:
-        logger.error(f"❌ Failed to start bot: {e}", exc_info=True)
-        print(f"❌ Startup Error: {e}")
+        logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
-
