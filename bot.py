@@ -1,7 +1,9 @@
+```python
 import os
 import threading
 import logging
 import asyncio
+import datetime
 from queue import Queue
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -10,7 +12,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
-from jinja2 import Template
+from jinja2 import Template, Markup
 from typing import List
 from io import BytesIO
 from weasyprint import HTML, CSS
@@ -34,11 +36,11 @@ flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "✅ Academic Reports Bot - Production Ready v3.0"
+    return "✅ Academic Reports Bot - Production Ready v3.1 (Fixed Templates & PDF)"
 
 @flask_app.route('/health')
 def health():
-    return {"status": "healthy", "bot": "active", "version": "3.0"}, 200
+    return {"status": "healthy", "bot": "active", "version": "3.1"}, 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -190,7 +192,7 @@ WRITING_STYLES = {
 }
 
 # ==========================================
-# HTML Templates - مُحسّنة ومختلفة
+# HTML Templates - مُحسّنة ومختلفة (مع استخدام متغيرات موحدة)
 # ==========================================
 TEMPLATES = {
     "classic": {
@@ -266,7 +268,7 @@ TEMPLATES = {
 
 <div class="intro">
     <h2>📚 المقدمة</h2>
-    {{ intro | safe }}
+    {{ introduction | safe }}
 </div>
 
 {% for section in sections %}
@@ -278,7 +280,7 @@ TEMPLATES = {
 
 <div class="conclusion">
     <h2>🎯 الخاتمة</h2>
-    {{ conc | safe }}
+    {{ conclusion | safe }}
 </div>
 
 <div class="footer">
@@ -369,7 +371,7 @@ TEMPLATES = {
 
     <div class="intro">
         <h2>🌟 المقدمة</h2>
-        {{ intro | safe }}
+        {{ introduction | safe }}
     </div>
 
     {% for section in sections %}
@@ -381,7 +383,7 @@ TEMPLATES = {
 
     <div class="conclusion">
         <h2>✨ الخاتمة</h2>
-        {{ conc | safe }}
+        {{ conclusion | safe }}
     </div>
 
     <div class="footer">
@@ -454,7 +456,7 @@ TEMPLATES = {
     
     <div class="section">
         <h2>المقدمة</h2>
-        {{ intro | safe }}
+        {{ introduction | safe }}
     </div>
 
     {% for section in sections %}
@@ -466,7 +468,7 @@ TEMPLATES = {
 
     <div class="section">
         <h2>الخاتمة</h2>
-        {{ conc | safe }}
+        {{ conclusion | safe }}
     </div>
 
     <div class="footer">
@@ -556,7 +558,7 @@ TEMPLATES = {
 
     <div class="section">
         <h2>📚 المقدمة</h2>
-        {{ intro | safe }}
+        {{ introduction | safe }}
     </div>
 
     {% for section in sections %}
@@ -568,7 +570,7 @@ TEMPLATES = {
 
     <div class="section">
         <h2>🎯 الخاتمة</h2>
-        {{ conc | safe }}
+        {{ conclusion | safe }}
     </div>
 
     <div class="footer">
@@ -658,7 +660,7 @@ TEMPLATES = {
 
     <div class="section">
         <h2>المقدمة</h2>
-        {{ intro | safe }}
+        {{ introduction | safe }}
     </div>
 
     {% for section in sections %}
@@ -670,7 +672,7 @@ TEMPLATES = {
 
     <div class="section">
         <h2>الخاتمة</h2>
-        {{ conc | safe }}
+        {{ conclusion | safe }}
     </div>
 
     <div class="footer">
@@ -684,9 +686,15 @@ TEMPLATES = {
     }
 }
 
+# ==========================================
+# دالة مساعدة لتنظيف النص وتحويله لفقرات HTML
+# ==========================================
+def clean_html_paragraphs(text):
+    paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
+    return "".join([f"<p>{p}</p>" for p in paragraphs])
 
 # ==========================================
-# Generate Report
+# Generate Report Content
 # ==========================================
 def generate_report_content(topic, style, language, page_length):
     """توليد محتوى التقرير"""
@@ -739,423 +747,336 @@ def generate_report_content(topic, style, language, page_length):
         logger.error(f"❌ Generation error: {e}", exc_info=True)
         return None, str(e)
 
-def create_pdf(report, template, language):
-    """إنشاء PDF"""
+# ==========================================
+# Create PDF
+# ==========================================
+def create_pdf(report, template_name, language):
+    """إنشاء PDF من التقرير"""
     try:
-        lang_config = LANGUAGES[language]
-        
-        def clean(text):
-            paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
-            return "".join([f"<p>{p}</p>" for p in paragraphs])
+        # تنظيف النصوص وتحويلها إلى HTML
+        intro_html = Markup(clean_html_paragraphs(report.introduction))
+        conclusion_html = Markup(clean_html_paragraphs(report.conclusion))
         
         sections_html = ""
         for idx, section in enumerate(report.sections, 1):
+            section_content = clean_html_paragraphs(section.content)
             sections_html += f"""
-<div>
+<div class="section">
     <h2>{idx}. {section.title}</h2>
-    {clean(section.content)}
+    {section_content}
 </div>
 """
+        sections_html = Markup(sections_html)
         
-        html_content = TEMPLATES[template]["html"]
-        html = Template(html_content).render(
+        # تحديد التاريخ
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        
+        # تحميل القالب
+        html_template = Template(TEMPLATES[template_name]["html"])
+        
+        html_content = html_template.render(
             title=report.title,
-            intro_label=lang_config['intro_label'],
-            intro=clean(report.introduction),
-            sections=Markup(sections_html),
-            conc_label=lang_config['conclusion_label'],
-            conc=clean(report.conclusion)
+            introduction=intro_html,
+            sections=sections_html,
+            conclusion=conclusion_html,
+            date=today
         )
         
-        logger.info("📄 Converting to PDF...")
-        pdf_bytes = HTML(string=html).write_pdf()
-        
-        logger.info("✅ PDF created")
-        return pdf_bytes
+        # إنشاء PDF
+        pdf = HTML(string=html_content).write_pdf()
+        return pdf, None
         
     except Exception as e:
-        logger.error(f"❌ PDF error: {e}", exc_info=True)
-        return None
+        logger.error(f"❌ PDF creation error: {e}", exc_info=True)
+        return None, str(e)
 
-# Import Markup for Jinja2
-from markupsafe import Markup
-
+# ==========================================
+# Create DOCX
+# ==========================================
 def create_docx(report, language):
-    """إنشاء DOCX"""
+    """إنشاء ملف Word (DOCX) من التقرير"""
     try:
-        lang_config = LANGUAGES[language]
         doc = Document()
         
-        section = doc.sections[0]
-        section.page_height = Inches(11.69)
-        section.page_width = Inches(8.27)
+        # إعداد الاتجاه (للعربية من اليمين لليسار)
+        if language == "ar":
+            # تعيين اللغة العربية
+            doc.styles['Normal'].paragraph_format.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         
         # العنوان
         title = doc.add_heading(report.title, 0)
-        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        title.runs[0].font.size = Pt(24)
-        title.runs[0].font.color.rgb = RGBColor(44, 62, 80)
+        if language == "ar":
+            title.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         
-        doc.add_paragraph()
+        # التاريخ
+        date_paragraph = doc.add_paragraph(f"التاريخ: {datetime.datetime.now().strftime('%Y-%m-%d')}")
+        if language == "ar":
+            date_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        
+        doc.add_paragraph()  # فراغ
         
         # المقدمة
-        intro_heading = doc.add_heading(lang_config['intro_label'], 1)
-        intro_heading.runs[0].font.color.rgb = RGBColor(52, 152, 219)
-        
-        for para in report.introduction.split('\n'):
-            if para.strip():
-                p = doc.add_paragraph(para.strip())
-                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        doc.add_heading(LANGUAGES[language]['intro_label'], level=1)
+        intro_para = doc.add_paragraph(report.introduction)
+        if language == "ar":
+            intro_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         
         # الأقسام
-        for idx, section in enumerate(report.sections, 1):
-            doc.add_paragraph()
-            section_heading = doc.add_heading(f"{idx}. {section.title}", 1)
-            section_heading.runs[0].font.color.rgb = RGBColor(52, 152, 219)
-            
-            for para in section.content.split('\n'):
-                if para.strip():
-                    p = doc.add_paragraph(para.strip())
-                    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        for section in report.sections:
+            doc.add_heading(section.title, level=2)
+            section_para = doc.add_paragraph(section.content)
+            if language == "ar":
+                section_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         
         # الخاتمة
-        doc.add_paragraph()
-        conc_heading = doc.add_heading(lang_config['conclusion_label'], 1)
-        conc_heading.runs[0].font.color.rgb = RGBColor(52, 152, 219)
+        doc.add_heading(LANGUAGES[language]['conclusion_label'], level=1)
+        conc_para = doc.add_paragraph(report.conclusion)
+        if language == "ar":
+            conc_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         
-        for para in report.conclusion.split('\n'):
-            if para.strip():
-                p = doc.add_paragraph(para.strip())
-                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        
-        docx_buffer = BytesIO()
-        doc.save(docx_buffer)
-        docx_buffer.seek(0)
-        
-        logger.info("✅ DOCX created")
-        return docx_buffer.getvalue()
+        # حفظ في الذاكرة
+        file_stream = BytesIO()
+        doc.save(file_stream)
+        file_stream.seek(0)
+        return file_stream, None
         
     except Exception as e:
-        logger.error(f"❌ DOCX error: {e}", exc_info=True)
-        return None
+        logger.error(f"❌ DOCX creation error: {e}", exc_info=True)
+        return None, str(e)
 
+# ==========================================
+# توليد وإرسال التقرير (دالة المساعد)
+# ==========================================
 async def generate_and_send_report(context, chat_id, session, user_id):
-    """توليد وإرسال التقرير"""
+    """توليد التقرير حسب الجلسة وإرساله"""
     try:
-        topic = session["topic"]
-        style = session["style"]
-        template = session["template"]
-        language = session["language"]
-        page_length = session["page_length"]
-        output_format = session["format"]
+        # إرسال رسالة انتظار
+        await context.bot.send_message(chat_id=chat_id, text="⏳ جاري إنشاء تقريرك الشامل، قد يستغرق ذلك دقيقة...")
+        
+        # استخراج الإعدادات من الجلسة
+        topic = session['topic']
+        style = session['style']
+        language = session['language']
+        page_length = session['page_length']
+        output_format = session['output_format']
+        template = session.get('template', 'classic')  # قالب افتراضي
         
         # توليد المحتوى
         report, error = generate_report_content(topic, style, language, page_length)
+        if error:
+            await context.bot.send_message(chat_id=chat_id, text=f"❌ فشل في توليد المحتوى: {error}")
+            return
         
-        if not report:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"❌ <b>خطأ في التوليد</b>\n\n{error[:300]}",
-                parse_mode='HTML'
-            )
-            return False
-        
-        # إنشاء الملف
+        # إنشاء الملف حسب الصيغة المطلوبة
         if output_format == "pdf":
-            file_bytes = create_pdf(report, template, language)
-            extension = "pdf"
-            icon = "📕"
-        else:
-            file_bytes = create_docx(report, language)
-            extension = "docx"
-            icon = "📘"
+            pdf_bytes, error = create_pdf(report, template, language)
+            if error:
+                await context.bot.send_message(chat_id=chat_id, text=f"❌ فشل في إنشاء PDF: {error}")
+                return
+            file = BytesIO(pdf_bytes)
+            file.name = f"report_{user_id}.pdf"
+            await context.bot.send_document(chat_id=chat_id, document=file, caption=f"✅ تم إنشاء تقريرك بصيغة PDF\nالموضوع: {topic}")
+            
+        elif output_format == "docx":
+            docx_stream, error = create_docx(report, language)
+            if error:
+                await context.bot.send_message(chat_id=chat_id, text=f"❌ فشل في إنشاء DOCX: {error}")
+                return
+            docx_stream.name = f"report_{user_id}.docx"
+            await context.bot.send_document(chat_id=chat_id, document=docx_stream, caption=f"✅ تم إنشاء تقريرك بصيغة Word\nالموضوع: {topic}")
         
-        if not file_bytes:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="❌ <b>خطأ في إنشاء الملف</b>",
-                parse_mode='HTML'
-            )
-            return False
-        
-        safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in report.title[:30])
-        filename = f"{safe_name}.{extension}"
-        
-        lang_config = LANGUAGES[language]
-        
-        caption = f"""
-✅ <b>تم بنجاح!</b>
-
-{icon} <b>العنوان:</b> {report.title}
-🌐 <b>اللغة:</b> {lang_config['name']}
-📄 <b>الطول:</b> {PAGE_LENGTHS[page_length]['name']}
-
-🔄 <b>أرسل موضوعاً جديداً للمتابعة!</b>
-"""
-        
-        await context.bot.send_document(
-            chat_id=chat_id,
-            document=BytesIO(file_bytes),
-            filename=filename,
-            caption=caption,
-            parse_mode='HTML'
-        )
-        
-        logger.info(f"✅ Sent to user {user_id}")
-        return True
-        
+        # تنظيف الجلسة بعد الإرسال
+        if user_id in user_sessions:
+            del user_sessions[user_id]
+            
     except Exception as e:
-        logger.error(f"❌ Send error: {e}", exc_info=True)
-        return False
+        logger.error(f"❌ Error in generate_and_send_report: {e}", exc_info=True)
+        await context.bot.send_message(chat_id=chat_id, text="❌ حدث خطأ غير متوقع أثناء إنشاء التقرير.")
 
 # ==========================================
-# Telegram Handlers
+# أوامر وواجهات البوت
 # ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_name = update.effective_user.first_name
-    
-    welcome = f"""
-🎓 <b>مرحباً {user_name}!</b>
-
-أهلاً بك في <b>بوت التقارير الأكاديمية الاحترافي</b> 📚
-
-✨ <b>المميزات:</b>
-- 5 أنماط كتابة مختلفة
-- 4 قوالب تصميم احترافية
-- لغتين (عربي وإنجليزي)
-- 4 أطوال للتقرير (2-15 صفحة)
-- تصدير PDF أو Word
-
-📝 <b>ابدأ الآن:</b>
-أرسل موضوع التقرير
-
-💡 <b>أمثلة:</b>
-- الذكاء الاصطناعي
-- Renewable Energy
-- الأمن السيبراني
-
-⏱️ <b>الوقت: 30-60 ثانية</b>
-"""
-    
-    await update.message.reply_text(welcome, parse_mode='HTML')
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    topic = update.message.text.strip()
     user_id = update.effective_user.id
+    user_sessions[user_id] = {}
     
-    if len(topic) < 5:
-        await update.message.reply_text("❌ الموضوع قصير جداً!")
-        return
-    
-    if len(topic) > 150:
-        await update.message.reply_text("❌ الموضوع طويل جداً!")
-        return
-    
-    user_sessions[user_id] = {"topic": topic}
-    
-    keyboard = []
-    for key, value in LANGUAGES.items():
-        keyboard.append([InlineKeyboardButton(value["name"], callback_data=f"lang_{key}")])
-    
+    keyboard = [
+        [InlineKeyboardButton("📝 كتابة تقرير جديد", callback_data="new_report")],
+        [InlineKeyboardButton("🌐 تغيير اللغة", callback_data="change_language")],
+        [InlineKeyboardButton("ℹ️ مساعدة", callback_data="help")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        f"📝 <b>الموضوع:</b> <i>{topic}</i>\n\n🌐 <b>اختر اللغة:</b>",
-        reply_markup=reply_markup,
-        parse_mode='HTML'
+        "👋 مرحباً بك في بوت التقارير الأكاديمية!\n"
+        "يمكنك إنشاء تقارير احترافية بسهولة.\n"
+        "اختر من القائمة:",
+        reply_markup=reply_markup
     )
 
-async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = update.effective_user.id
+    data = query.data
     
-    user_id = query.from_user.id
-    language = query.data.replace("lang_", "")
-    
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية.")
-        return
-    
-    user_sessions[user_id]["language"] = language
-    
-    keyboard = []
-    for key, value in PAGE_LENGTHS.items():
-        keyboard.append([InlineKeyboardButton(value["name"], callback_data=f"length_{key}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f"✅ <b>اللغة:</b> {LANGUAGES[language]['name']}\n\n📏 <b>اختر الطول:</b>",
-        reply_markup=reply_markup,
-        parse_mode='HTML'
-    )
-
-async def length_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    page_length = query.data.replace("length_", "")
-    
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية.")
-        return
-    
-    user_sessions[user_id]["page_length"] = page_length
-    
-    keyboard = []
-    for key, value in WRITING_STYLES.items():
-        keyboard.append([InlineKeyboardButton(value["name"], callback_data=f"style_{key}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f"✅ <b>الطول:</b> {PAGE_LENGTHS[page_length]['name']}\n\n✍️ <b>اختر النمط:</b>",
-        reply_markup=reply_markup,
-        parse_mode='HTML'
-    )
-
-async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    style = query.data.replace("style_", "")
-    
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية.")
-        return
-    
-    user_sessions[user_id]["style"] = style
-    
-    keyboard = []
-    for key, value in TEMPLATES.items():
-        keyboard.append([InlineKeyboardButton(value["name"], callback_data=f"template_{key}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f"✅ <b>النمط:</b> {WRITING_STYLES[style]['name']}\n\n🎨 <b>اختر القالب:</b>",
-        reply_markup=reply_markup,
-        parse_mode='HTML'
-    )
-
-async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    template = query.data.replace("template_", "")
-    
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية.")
-        return
-    
-    user_sessions[user_id]["template"] = template
-    
-    keyboard = []
-    for key, value in OUTPUT_FORMATS.items():
-        keyboard.append([InlineKeyboardButton(value["name"], callback_data=f"format_{key}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f"✅ <b>القالب:</b> {TEMPLATES[template]['name']}\n\n📎 <b>اختر الصيغة:</b>",
-        reply_markup=reply_markup,
-        parse_mode='HTML'
-    )
-
-async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    output_format = query.data.replace("format_", "")
-    
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية.")
-        return
-    
-    session = user_sessions[user_id]
-    session["format"] = output_format
-    
-    queue_size = request_queue.qsize()
-    queue_msg = f"\n\n⏳ <b>{queue_size} طلب في الانتظار</b>" if queue_size > 0 else ""
-    
-    await query.edit_message_text(
-        f"✅ <b>تم!</b>\n\n🔄 <b>جاري الإضافة للطابور...</b>{queue_msg}",
-        parse_mode='HTML'
-    )
-    
-    try:
-        request_queue.put({
-            "user_id": user_id,
-            "chat_id": query.message.chat_id,
-            "session": session.copy()
-        }, block=False)
+    if data == "new_report":
+        user_sessions[user_id] = {}
+        await query.edit_message_text("📝 أرسل الموضوع الذي تريد كتابة التقرير عنه:")
+        context.user_data['awaiting_topic'] = True
         
-        logger.info(f"📥 Queued for user {user_id}")
+    elif data == "change_language":
+        # عرض خيارات اللغة
+        keyboard = []
+        for lang_code, lang_info in LANGUAGES.items():
+            keyboard.append([InlineKeyboardButton(lang_info['name'], callback_data=f"set_lang_{lang_code}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("🌐 اختر اللغة:", reply_markup=reply_markup)
         
-        await query.message.reply_text(
-            "✅ <b>تم!</b>\n\n⏱️ سيصلك التقرير خلال دقائق...",
-            parse_mode='HTML'
+    elif data.startswith("set_lang_"):
+        lang_code = data.replace("set_lang_", "")
+        if user_id not in user_sessions:
+            user_sessions[user_id] = {}
+        user_sessions[user_id]['language'] = lang_code
+        await query.edit_message_text(f"✅ تم تعيين اللغة: {LANGUAGES[lang_code]['name']}\n\nالآن أرسل الموضوع:")
+        context.user_data['awaiting_topic'] = True
+        
+    elif data == "help":
+        help_text = (
+            "ℹ️ مساعدة:\n"
+            "• لبدء تقرير جديد: اضغط '📝 كتابة تقرير جديد'\n"
+            "• سيُطلب منك إدخال الموضوع ثم اختيار:\n"
+            "   - اللغة\n"
+            "   - أسلوب الكتابة\n"
+            "   - طول التقرير\n"
+            "   - قالب التصميم\n"
+            "   - صيغة الملف (PDF أو DOCX)\n"
+            "• بعد الاختيار، سيتم إنشاء التقرير وإرساله لك."
         )
+        await query.edit_message_text(help_text)
         
-        del user_sessions[user_id]
+    elif data.startswith("style_"):
+        style = data.replace("style_", "")
+        if user_id not in user_sessions:
+            user_sessions[user_id] = {}
+        user_sessions[user_id]['style'] = style
+        # بعد اختيار الأسلوب ننتقل لاختيار الطول
+        keyboard = []
+        for length_key, length_info in PAGE_LENGTHS.items():
+            keyboard.append([InlineKeyboardButton(length_info['name'], callback_data=f"length_{length_key}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("📏 اختر طول التقرير:", reply_markup=reply_markup)
         
-    except:
-        await query.message.reply_text(
-            "❌ <b>الطابور ممتلئ!</b>\n\nحاول بعد قليل.",
-            parse_mode='HTML'
-        )
+    elif data.startswith("length_"):
+        length = data.replace("length_", "")
+        if user_id not in user_sessions:
+            user_sessions[user_id] = {}
+        user_sessions[user_id]['page_length'] = length
+        # بعد الطول ننتقل لاختيار القالب
+        keyboard = []
+        for template_key, template_info in TEMPLATES.items():
+            keyboard.append([InlineKeyboardButton(template_info['name'], callback_data=f"template_{template_key}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("🎨 اختر التصميم المناسب:", reply_markup=reply_markup)
+        
+    elif data.startswith("template_"):
+        template = data.replace("template_", "")
+        if user_id not in user_sessions:
+            user_sessions[user_id] = {}
+        user_sessions[user_id]['template'] = template
+        # بعد القالب ننتقل لاختيار الصيغة
+        keyboard = []
+        for fmt_key, fmt_info in OUTPUT_FORMATS.items():
+            keyboard.append([InlineKeyboardButton(fmt_info['name'], callback_data=f"format_{fmt_key}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("📁 اختر صيغة الملف النهائي:", reply_markup=reply_markup)
+        
+    elif data.startswith("format_"):
+        fmt = data.replace("format_", "")
+        if user_id not in user_sessions:
+            user_sessions[user_id] = {}
+        user_sessions[user_id]['output_format'] = fmt
+        
+        # التحقق من اكتمال جميع الخيارات
+        session = user_sessions.get(user_id, {})
+        required = ['topic', 'language', 'style', 'page_length', 'template', 'output_format']
+        if all(k in session for k in required):
+            # إضافة الطلب إلى الطابور
+            request_queue.put({
+                'user_id': user_id,
+                'chat_id': update.effective_chat.id,
+                'session': session.copy()
+            })
+            await query.edit_message_text("✅ تم استلام طلبك، سيتم إنشاء التقرير وإرساله لك خلال لحظات...")
+        else:
+            await query.edit_message_text("⚠️ حدث خطأ في الجلسة، الرجاء البدء من جديد بـ /start")
+            if user_id in user_sessions:
+                del user_sessions[user_id]
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"❌ Error: {context.error}", exc_info=context.error)
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text
+    
+    if context.user_data.get('awaiting_topic'):
+        # استقبال الموضوع
+        if user_id not in user_sessions:
+            user_sessions[user_id] = {}
+        user_sessions[user_id]['topic'] = text
+        context.user_data['awaiting_topic'] = False
+        
+        # إذا لم تكن اللغة محددة بعد، نطلبها
+        if 'language' not in user_sessions[user_id]:
+            keyboard = []
+            for lang_code, lang_info in LANGUAGES.items():
+                keyboard.append([InlineKeyboardButton(lang_info['name'], callback_data=f"set_lang_{lang_code}")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("🌐 اختر اللغة:", reply_markup=reply_markup)
+        else:
+            # ننتقل مباشرة لاختيار الأسلوب
+            keyboard = []
+            for style_key, style_info in WRITING_STYLES.items():
+                keyboard.append([InlineKeyboardButton(style_info['name'], callback_data=f"style_{style_key}")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("✍️ اختر أسلوب الكتابة:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("🤖 استخدم الأزرار للتفاعل مع البوت، أو أرسل /start")
 
 # ==========================================
-# Main
+# تشغيل البوت
 # ==========================================
-if __name__ == '__main__':
+def main():
+    # التحقق من وجود API Key
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        logger.error("❌ GOOGLE_API_KEY غير موجودة في المتغيرات البيئية")
+        return
+    
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        logger.error("❌ TELEGRAM_BOT_TOKEN غير موجودة في المتغيرات البيئية")
+        return
+    
+    # تشغيل Flask في خيط منفصل
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    logger.info("🌐 Flask started")
+    logger.info("🚀 Flask server started on background thread")
     
-    token = os.getenv("TELEGRAM_TOKEN")
+    # إعداد التطبيق
+    application = ApplicationBuilder().token(bot_token).build()
     
-    if not token:
-        logger.error("❌ TOKEN missing")
-        exit(1)
+    # إضافة المعالجات
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    try:
-        application = ApplicationBuilder().token(token).build()
-        
-        application.add_handler(CommandHandler('start', start))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        application.add_handler(CallbackQueryHandler(language_callback, pattern='^lang_'))
-        application.add_handler(CallbackQueryHandler(length_callback, pattern='^length_'))
-        application.add_handler(CallbackQueryHandler(style_callback, pattern='^style_'))
-        application.add_handler(CallbackQueryHandler(template_callback, pattern='^template_'))
-        application.add_handler(CallbackQueryHandler(format_callback, pattern='^format_'))
-        application.add_error_handler(error_handler)
-        
-        logger.info("🤖 Bot v3.0 Ready!")
-        print("=" * 60)
-        print("✅ Bot v3.0 Production")
-        print("=" * 60)
-        
-        async def run_bot():
-            async with application:
-                await application.initialize()
-                await application.start()
-                
-                asyncio.create_task(process_queue(application))
-                
-                await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-                await asyncio.Event().wait()
-        
-        asyncio.run(run_bot())
-        
-    except Exception as e:
-        logger.error(f"❌ Failed: {e}", exc_info=True)
-        exit(1)
+    # تشغيل معالج الطابور في الخلفية
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.create_task(process_queue(application.bot))
+    
+    logger.info("🤖 Bot is starting...")
+    application.run_polling()
 
+if __name__ == "__main__":
+    main()
+```
