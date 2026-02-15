@@ -195,6 +195,7 @@ WRITING_STYLES = {
 TEMPLATES = {
     "classic": {
         "name": "🎓 كلاسيكي أكاديمي",
+        "description": "تصميم تقليدي احترافي",
         "html": """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -205,6 +206,7 @@ TEMPLATES = {
     body {
         font-family: 'Traditional Arabic', 'Arial', sans-serif;
         direction: rtl;
+        text-align: right;
         line-height: 1.9;
         color: #2c3e50;
     }
@@ -218,6 +220,11 @@ TEMPLATES = {
         color: #2c3e50;
         font-size: 32px;
         margin-bottom: 10px;
+    }
+    .subtitle {
+        color: #7f8c8d;
+        font-size: 14px;
+        margin-top: 10px;
     }
     h2 {
         color: #34495e;
@@ -241,15 +248,24 @@ TEMPLATES = {
         margin: 25px 0;
         border-right: 5px solid #3498db;
     }
+    .footer {
+        text-align: center;
+        margin-top: 60px;
+        padding-top: 25px;
+        border-top: 3px solid #bdc3c7;
+        color: #7f8c8d;
+        font-size: 12px;
+    }
 </style>
 </head>
 <body>
 <div class="header">
     <h1>{{ title }}</h1>
+    <div class="subtitle">{{ date }} | تقرير أكاديمي</div>
 </div>
 
 <div class="intro">
-    <h2>{{ intro_label }}</h2>
+    <h2>📚 المقدمة</h2>
     {{ intro | safe }}
 </div>
 
@@ -261,8 +277,13 @@ TEMPLATES = {
 {% endfor %}
 
 <div class="conclusion">
-    <h2>{{ conc_label }}</h2>
+    <h2>🎯 الخاتمة</h2>
     {{ conc | safe }}
+</div>
+
+<div class="footer">
+    <p>تم الإنشاء بواسطة Academic Reports Bot</p>
+    <p>{{ date }}</p>
 </div>
 </body>
 </html>
@@ -271,6 +292,7 @@ TEMPLATES = {
     
     "modern": {
         "name": "🚀 عصري حديث",
+        "description": "تصميم عصري بألوان جذابة",
         "html": """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -281,26 +303,39 @@ TEMPLATES = {
     body {
         font-family: 'Arial', sans-serif;
         direction: rtl;
+        text-align: right;
         line-height: 1.8;
         color: #1a1a2e;
+    }
+    .container {
         background: white;
+        padding: 40px;
     }
     h1 {
         text-align: center;
         color: #667eea;
         font-size: 36px;
-        margin-bottom: 30px;
+        margin-bottom: 15px;
         font-weight: bold;
-        text-shadow: 2px 2px 4px rgba(102, 126, 234, 0.2);
+    }
+    .date-badge {
+        text-align: center;
+        background: #667eea;
+        color: white;
+        padding: 8px 20px;
+        border-radius: 20px;
+        display: inline-block;
+        font-size: 13px;
+        margin-bottom: 30px;
     }
     h2 {
-        color: white;
+        color: #667eea;
         margin-top: 35px;
         padding: 15px 20px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 10px;
+        background: linear-gradient(90deg, #f8f9fa 0%, white 100%);
+        border-right: 6px solid #764ba2;
+        border-radius: 0 10px 10px 0;
         font-size: 24px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     p {
         text-align: justify;
@@ -310,19 +345,30 @@ TEMPLATES = {
         color: #2d3748;
     }
     .intro, .conclusion {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        background: #f5f7fa;
         padding: 30px;
         border-radius: 15px;
         margin: 30px 0;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    .footer {
+        text-align: center;
+        margin-top: 50px;
+        padding: 20px;
+        background: #f8f9fa;
+        border-radius: 10px;
+        color: #718096;
     }
 </style>
 </head>
 <body>
+<div class="container">
     <h1>{{ title }}</h1>
-    
+    <div style="text-align: center;">
+        <span class="date-badge">📅 {{ date }}</span>
+    </div>
+
     <div class="intro">
-        <h2>🌟 {{ intro_label }}</h2>
+        <h2>🌟 المقدمة</h2>
         {{ intro | safe }}
     </div>
 
@@ -334,9 +380,15 @@ TEMPLATES = {
     {% endfor %}
 
     <div class="conclusion">
-        <h2>✨ {{ conc_label }}</h2>
+        <h2>✨ الخاتمة</h2>
         {{ conc | safe }}
     </div>
+
+    <div class="footer">
+        <p><strong>Academic Reports Bot</strong></p>
+        <p>{{ date }}</p>
+    </div>
+</div>
 </body>
 </html>
 """
@@ -344,6 +396,7 @@ TEMPLATES = {
     
     "minimal": {
         "name": "⚪ بسيط أنيق",
+        "description": "تصميم نظيف ومرتب",
         "html": """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -354,8 +407,11 @@ TEMPLATES = {
     body {
         font-family: 'Arial', sans-serif;
         direction: rtl;
+        text-align: right;
         line-height: 2;
         color: #333;
+        max-width: 800px;
+        margin: 0 auto;
     }
     h1 {
         text-align: center;
@@ -365,7 +421,6 @@ TEMPLATES = {
         margin-bottom: 40px;
         padding-bottom: 20px;
         border-bottom: 1px solid #e0e0e0;
-        color: #222;
     }
     h2 {
         font-size: 20px;
@@ -384,13 +439,21 @@ TEMPLATES = {
     .section {
         margin-bottom: 50px;
     }
+    .footer {
+        text-align: center;
+        margin-top: 80px;
+        padding-top: 30px;
+        border-top: 1px solid #e0e0e0;
+        font-size: 11px;
+        color: #999;
+    }
 </style>
 </head>
 <body>
     <h1>{{ title }}</h1>
     
     <div class="section">
-        <h2>{{ intro_label }}</h2>
+        <h2>المقدمة</h2>
         {{ intro | safe }}
     </div>
 
@@ -402,8 +465,115 @@ TEMPLATES = {
     {% endfor %}
 
     <div class="section">
-        <h2>{{ conc_label }}</h2>
+        <h2>الخاتمة</h2>
         {{ conc | safe }}
+    </div>
+
+    <div class="footer">
+        <p>{{ date }}</p>
+    </div>
+</body>
+</html>
+"""
+    },
+    
+    "colorful": {
+        "name": "🎨 ملون إبداعي",
+        "description": "تصميم ملون ومميز",
+        "html": """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<style>
+    @page { size: A4; margin: 2cm; }
+    body {
+        font-family: 'Arial', sans-serif;
+        direction: rtl;
+        text-align: right;
+        line-height: 1.8;
+        color: #2d3748;
+    }
+    .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+        padding: 40px;
+        text-align: center;
+        border-radius: 15px;
+        margin-bottom: 40px;
+    }
+    h1 {
+        color: white;
+        font-size: 34px;
+        margin: 0;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    .date {
+        color: white;
+        margin-top: 15px;
+        font-size: 14px;
+    }
+    h2 {
+        font-size: 24px;
+        margin-top: 35px;
+        padding: 15px 20px;
+        border-radius: 10px;
+        color: white;
+        font-weight: bold;
+    }
+    h2:nth-of-type(1) { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+    h2:nth-of-type(2) { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+    h2:nth-of-type(3) { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+    h2:nth-of-type(4) { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
+    h2:nth-of-type(5) { background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); }
+    h2:nth-of-type(6) { background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); }
+    p {
+        text-align: justify;
+        line-height: 1.8;
+        margin-bottom: 18px;
+        font-size: 15px;
+    }
+    .section {
+        background: #f8f9fa;
+        padding: 25px;
+        border-radius: 12px;
+        margin: 25px 0;
+    }
+    .footer {
+        text-align: center;
+        margin-top: 50px;
+        padding: 25px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+    }
+</style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ title }}</h1>
+        <div class="date">📅 {{ date }}</div>
+    </div>
+
+    <div class="section">
+        <h2>📚 المقدمة</h2>
+        {{ intro | safe }}
+    </div>
+
+    {% for section in sections %}
+    <div class="section">
+        <h2>{{ loop.index }}. {{ section.title }}</h2>
+        {{ section.content | safe }}
+    </div>
+    {% endfor %}
+
+    <div class="section">
+        <h2>🎯 الخاتمة</h2>
+        {{ conc | safe }}
+    </div>
+
+    <div class="footer">
+        <p><strong>Academic Reports Bot</strong></p>
+        <p>{{ date }}</p>
     </div>
 </body>
 </html>
@@ -412,6 +582,7 @@ TEMPLATES = {
     
     "professional": {
         "name": "💼 احترافي رسمي",
+        "description": "تصميم رسمي للأعمال",
         "html": """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -422,11 +593,12 @@ TEMPLATES = {
     body {
         font-family: 'Traditional Arabic', 'Times New Roman', serif;
         direction: rtl;
+        text-align: right;
         line-height: 1.9;
         color: #1a202c;
     }
     .letterhead {
-        border: 3px double #2c5282;
+        border: 3px solid #2c5282;
         padding: 30px;
         margin-bottom: 40px;
         background: linear-gradient(to bottom, #f7fafc 0%, white 100%);
@@ -438,6 +610,13 @@ TEMPLATES = {
         margin: 0;
         text-transform: uppercase;
         letter-spacing: 1px;
+    }
+    .doc-info {
+        text-align: center;
+        margin-top: 20px;
+        padding: 15px;
+        background: #edf2f7;
+        border-radius: 5px;
     }
     h2 {
         color: #2c5282;
@@ -458,15 +637,27 @@ TEMPLATES = {
     .section {
         margin-bottom: 40px;
     }
+    .footer {
+        text-align: center;
+        margin-top: 50px;
+        padding: 20px;
+        border-top: 3px solid #2c5282;
+        color: #4a5568;
+        font-size: 12px;
+    }
 </style>
 </head>
 <body>
     <div class="letterhead">
         <h1>{{ title }}</h1>
+        <div class="doc-info">
+            <strong>تاريخ الإصدار:</strong> {{ date }}<br>
+            <strong>نوع الوثيقة:</strong> تقرير أكاديمي
+        </div>
     </div>
 
     <div class="section">
-        <h2>{{ intro_label }}</h2>
+        <h2>المقدمة</h2>
         {{ intro | safe }}
     </div>
 
@@ -478,14 +669,21 @@ TEMPLATES = {
     {% endfor %}
 
     <div class="section">
-        <h2>{{ conc_label }}</h2>
+        <h2>الخاتمة</h2>
         {{ conc | safe }}
+    </div>
+
+    <div class="footer">
+        <p><strong>Academic Reports Bot</strong></p>
+        <p>هذه وثيقة رسمية تم إنشاؤها إلكترونياً</p>
+        <p>{{ date }}</p>
     </div>
 </body>
 </html>
 """
     }
 }
+
 
 # ==========================================
 # Generate Report
@@ -960,3 +1158,4 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Failed: {e}", exc_info=True)
         exit(1)
+
