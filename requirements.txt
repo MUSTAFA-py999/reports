@@ -1,5 +1,5 @@
 flask
-python-telegram-bot
+python-telegram-bot[job-queue]
 requests
 langchain-google-genai
 langchain-core
