@@ -1,5 +1,5 @@
 flask
-python-telegram-bot[job-queue]
+python-telegram-bot
 requests
 langchain-google-genai
 langchain-core
@@ -7,3 +7,4 @@ pydantic
 jinja2
 weasyprint
 python-docx
+
