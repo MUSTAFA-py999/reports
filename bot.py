@@ -591,7 +591,7 @@ def generate_report(topic, style="academic", template="classic"):
         logger.info(f"📝 Generating: {topic} | Style: {style} | Template: {template}")
         
         llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             temperature=0.5,
             google_api_key=api_key,
             max_retries=3
@@ -855,3 +855,4 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
+
