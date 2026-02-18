@@ -1,12 +1,9 @@
-flask
-langchain
 python-telegram-bot
-requests
 langchain-google-genai
 langchain-core
+langchain
 pydantic
 jinja2
 weasyprint
+flask
 python-docx
-
-
