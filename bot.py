@@ -299,7 +299,10 @@ IMPORTANT: You MUST include the "conclusion" field in your JSON output. Do not o
         logger.error(f"❌ Error: {e}", exc_info=True)
         return None, str(e), None
 
+
 def build_docx(report, language="ar", template="classic"):
+    import re
+
     doc = Document()
     lang_cfg = LANGUAGES[language]
     is_rtl = lang_cfg["html_dir"] == "rtl"
@@ -362,18 +365,39 @@ def build_docx(report, language="ar", template="classic"):
         r.font.size = Pt(14)
         r.font.color.rgb = ts["heading_color"]
 
+    def split_into_sentences(text):
+        text = text.strip()
+        if not text:
+            return []
+        # تقسيم النص إلى جمل بناءً على نقاط النهاية
+        sentences = re.split(r'(?<=[.!?؟])\s+', text)
+        # دمج الجمل في فقرات (كل 3-4 جمل فقرة)
+        chunks = []
+        current = []
+        for s in sentences:
+            s = s.strip()
+            if s:
+                current.append(s)
+                if len(current) >= 3:
+                    chunks.append(' '.join(current))
+                    current = []
+        if current:
+            chunks.append(' '.join(current))
+        return chunks if chunks else [text]
+
     def add_body(text):
-        for line in text.split('\n'):
-            line = line.strip()
-            if line:
-                p = doc.add_paragraph(line)
+        paragraphs = split_into_sentences(text)
+        for para_text in paragraphs:
+            if para_text.strip():
+                p = doc.add_paragraph()
                 p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                 if is_rtl:
                     set_rtl(p)
-                for run in p.runs:
-                    run.font.size = Pt(ts["body_size"])
-                    run.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+                run = p.add_run(para_text.strip())
+                run.font.size = Pt(ts["body_size"])
+                run.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
 
+    # العنوان الرئيسي
     title_para = doc.add_paragraph()
     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if is_rtl:
@@ -405,6 +429,7 @@ def build_docx(report, language="ar", template="classic"):
     buf.seek(0)
     return buf.read()
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
@@ -435,6 +460,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome, parse_mode='HTML')
     logger.info(f"✅ User {user_id} ({user_name}) started the bot")
 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = update.message.text.strip()
     user_id = update.effective_user.id
@@ -456,6 +482,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML'
     )
 
+
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -475,6 +502,7 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML'
     )
 
+
 async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -493,6 +521,7 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
+
 
 async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -515,6 +544,7 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
+
 
 async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -596,6 +626,7 @@ async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML'
         )
 
+
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Update error: {context.error}", exc_info=context.error)
     try:
@@ -603,6 +634,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_message.reply_text("❌ حدث خطأ في معالجة طلبك. حاول مرة أخرى.")
     except:
         pass
+
 
 if __name__ == '__main__':
     flask_thread = threading.Thread(target=run_flask, daemon=True)
