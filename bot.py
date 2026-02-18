@@ -7,7 +7,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Messa
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.output_parsers import OutputFixingParser
+from langchain.output_parsers import OutputFixingParser
 from pydantic import BaseModel, Field
 from jinja2 import Template
 from typing import List
@@ -627,4 +627,5 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
+
 
