@@ -7,7 +7,6 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Messa
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.output_parsers.fix import OutputFixingParser
 from pydantic import BaseModel, Field
 from jinja2 import Template
 from typing import List
@@ -233,7 +232,6 @@ def generate_report(topic, style="academic", template="classic", language="ar"):
         )
 
         parser = PydanticOutputParser(pydantic_object=AcademicReport)
-        fixing_parser = OutputFixingParser.from_llm(parser=parser, llm=llm)
 
         style_instruction = WRITING_STYLES[style]["prompt"]
         lang_instruction = LANGUAGES[language]["prompt_instruction"]
@@ -259,7 +257,16 @@ IMPORTANT: You MUST include the "conclusion" field in your JSON output. Do not o
 {{format_instructions}}"""
         )
 
-        report = (prompt | llm | fixing_parser).invoke({"topic": topic})
+        report = None
+        for attempt in range(3):
+            try:
+                report = (prompt | llm | parser).invoke({"topic": topic})
+                break
+            except Exception as parse_err:
+                if attempt == 2:
+                    raise parse_err
+                logger.warning(f"Parse attempt {attempt+1} failed, retrying...")
+
         logger.info("✅ Report generated")
 
         def clean(text):
@@ -627,6 +634,3 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
-
-
-
