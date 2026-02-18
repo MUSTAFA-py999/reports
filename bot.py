@@ -13,6 +13,9 @@ from typing import List
 from io import BytesIO
 from weasyprint import HTML
 from datetime import datetime
+from docx import Document
+from docx.shared import Pt, RGBColor, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # ==========================================
 # إعداد Logging
@@ -494,11 +497,86 @@ The report must contain:
         pdf_bytes = HTML(string=html).write_pdf()
         
         logger.info("✅ PDF created")
-        return pdf_bytes, report.title
+        return pdf_bytes, report.title, report
         
     except Exception as e:
         logger.error(f"❌ Error: {e}", exc_info=True)
-        return None, str(e)
+        return None, str(e), None
+
+# ==========================================
+# Telegram Handlers
+# ==========================================
+# ==========================================
+# Generate DOCX Function
+# ==========================================
+def build_docx(report, language="ar"):
+    doc = Document()
+    lang_cfg = LANGUAGES[language]
+    is_rtl = lang_cfg["html_dir"] == "rtl"
+
+    for section in doc.sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1.2)
+        section.right_margin = Inches(1.2)
+
+    def set_rtl(paragraph):
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+        pPr = paragraph._p.get_or_add_pPr()
+        bidi = OxmlElement('w:bidi')
+        pPr.insert(0, bidi)
+        jc = OxmlElement('w:jc')
+        jc.set(qn('w:val'), 'right')
+        pPr.append(jc)
+
+    def add_heading(text):
+        h = doc.add_paragraph()
+        if is_rtl:
+            set_rtl(h)
+        r = h.add_run(text)
+        r.bold = True
+        r.font.size = Pt(14)
+        r.font.color.rgb = RGBColor(0x34, 0x49, 0x5e)
+
+    def add_body(text):
+        for line in text.split('\n'):
+            line = line.strip()
+            if line:
+                p = doc.add_paragraph(line)
+                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                if is_rtl:
+                    set_rtl(p)
+                for run in p.runs:
+                    run.font.size = Pt(12)
+
+    # Title
+    title_para = doc.add_paragraph()
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if is_rtl:
+        set_rtl(title_para)
+    run = title_para.add_run(report.title)
+    run.bold = True
+    run.font.size = Pt(22)
+    run.font.color.rgb = RGBColor(0x2c, 0x3e, 0x50)
+    doc.add_paragraph()
+
+    add_heading(f"📚 {lang_cfg['intro_label']}")
+    add_body(report.introduction)
+    doc.add_paragraph()
+
+    for i, sec in enumerate(report.sections, 1):
+        add_heading(f"{i}. {sec.title}")
+        add_body(sec.content)
+        doc.add_paragraph()
+
+    add_heading(f"🎯 {lang_cfg['conclusion_label']}")
+    add_body(report.conclusion)
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
 
 # ==========================================
 # Telegram Handlers
@@ -630,29 +708,58 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
         return
     
+    user_sessions[user_id]["template"] = template
+    
+    template_name = TEMPLATES[template]["name"]
+    style_name = WRITING_STYLES[user_sessions[user_id]["style"]]["name"]
+    
+    # اختيار صيغة الملف
+    keyboard = [
+        [InlineKeyboardButton("📄 PDF", callback_data="format_pdf")],
+        [InlineKeyboardButton("📝 Word (DOCX)", callback_data="format_docx")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"✅ <b>تم اختيار:</b> {template_name}\n\n📁 <b>اختر صيغة الملف:</b>",
+        reply_markup=reply_markup,
+        parse_mode='HTML'
+    )
+
+async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    file_format = query.data.replace("format_", "")
+    
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
+        return
+    
     session = user_sessions[user_id]
     topic = session["topic"]
     style = session["style"]
+    template = session["template"]
     language = session.get("language", "ar")
     
     template_name = TEMPLATES[template]["name"]
     style_name = WRITING_STYLES[style]["name"]
     lang_name = LANGUAGES[language]["name"]
+    format_name = "PDF" if file_format == "pdf" else "Word (DOCX)"
     
     safe_topic = topic.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
     
     await query.edit_message_text(
-        f"⏳ <b>جاري إنشاء التقرير...</b>\n\n📝 الموضوع: <i>{safe_topic}</i>\n🌐 اللغة: {lang_name}\n✍️ النمط: {style_name}\n🎨 القالب: {template_name}\n\n⏱️ يستغرق 30-60 ثانية...",
+        f"⏳ <b>جاري إنشاء التقرير...</b>\n\n📝 الموضوع: <i>{safe_topic}</i>\n🌐 اللغة: {lang_name}\n✍️ النمط: {style_name}\n🎨 القالب: {template_name}\n📁 الصيغة: {format_name}\n\n⏱️ يستغرق 30-60 ثانية...",
         parse_mode='HTML'
     )
     
     try:
-        pdf_bytes, title = generate_report(topic, style, template, language)
+        pdf_bytes, title, report_obj = generate_report(topic, style, template, language)
         
         if pdf_bytes:
             safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:30])
-            filename = f"{safe_name}.pdf"
-            
             safe_title = title.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
             
             caption = f"""
@@ -662,22 +769,29 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🌐 <b>اللغة:</b> {lang_name}
 ✍️ <b>النمط:</b> {style_name}
 🎨 <b>القالب:</b> {template_name}
+📁 <b>الصيغة:</b> {format_name}
 
 🔄 <b>لإنشاء تقرير جديد، أرسل موضوعاً آخر!</b>
 """
             
+            if file_format == "pdf":
+                filename = f"{safe_name}.pdf"
+                file_bytes = pdf_bytes
+            else:
+                file_bytes = build_docx(report_obj, language)
+                filename = f"{safe_name}.docx"
+            
             await context.bot.send_document(
                 chat_id=query.message.chat_id,
-                document=BytesIO(pdf_bytes),
+                document=BytesIO(file_bytes),
                 filename=filename,
                 caption=caption,
                 parse_mode='HTML'
             )
             
             await query.message.delete()
-            logger.info(f"✅ PDF sent to user {user_id}")
+            logger.info(f"✅ {format_name} sent to user {user_id}")
             
-            # مسح الجلسة
             del user_sessions[user_id]
         else:
             error_msg = str(title).replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
@@ -726,6 +840,7 @@ if __name__ == '__main__':
         application.add_handler(CallbackQueryHandler(language_callback, pattern='^lang_'))
         application.add_handler(CallbackQueryHandler(style_callback, pattern='^style_'))
         application.add_handler(CallbackQueryHandler(template_callback, pattern='^template_'))
+        application.add_handler(CallbackQueryHandler(format_callback, pattern='^format_'))
         application.add_error_handler(error_handler)
         
         logger.info("🤖 Bot Production Ready!")
