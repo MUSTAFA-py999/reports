@@ -90,11 +90,6 @@ TEMPLATES = {
         font-size: 32px;
         margin-bottom: 10px;
     }
-    .subtitle {
-        color: #7f8c8d;
-        font-size: 14px;
-        margin-top: 10px;
-    }
     h2 {
         color: #34495e;
         margin-top: 30px;
@@ -117,20 +112,11 @@ TEMPLATES = {
         margin: 25px 0;
         border-right: 5px solid #3498db;
     }
-    .footer {
-        text-align: center;
-        margin-top: 60px;
-        padding-top: 25px;
-        border-top: 3px solid #bdc3c7;
-        color: #7f8c8d;
-        font-size: 12px;
-    }
 </style>
 </head>
 <body>
 <div class="header">
     <h1>{{ title }}</h1>
-    <div class="subtitle">{{ date }} | تقرير أكاديمي</div>
 </div>
 
 <div class="intro">
@@ -148,11 +134,6 @@ TEMPLATES = {
 <div class="conclusion">
     <h2>🎯 الخاتمة</h2>
     {{ conc | safe }}
-</div>
-
-<div class="footer">
-    <p>تم الإنشاء بواسطة Academic Reports Bot</p>
-    <p>{{ date }}</p>
 </div>
 </body>
 </html>
@@ -184,18 +165,8 @@ TEMPLATES = {
         text-align: center;
         color: #667eea;
         font-size: 36px;
-        margin-bottom: 15px;
-        font-weight: bold;
-    }
-    .date-badge {
-        text-align: center;
-        background: #667eea;
-        color: white;
-        padding: 8px 20px;
-        border-radius: 20px;
-        display: inline-block;
-        font-size: 13px;
         margin-bottom: 30px;
+        font-weight: bold;
     }
     h2 {
         color: #667eea;
@@ -219,22 +190,11 @@ TEMPLATES = {
         border-radius: 15px;
         margin: 30px 0;
     }
-    .footer {
-        text-align: center;
-        margin-top: 50px;
-        padding: 20px;
-        background: #f8f9fa;
-        border-radius: 10px;
-        color: #718096;
-    }
 </style>
 </head>
 <body>
 <div class="container">
     <h1>{{ title }}</h1>
-    <div style="text-align: center;">
-        <span class="date-badge">📅 {{ date }}</span>
-    </div>
 
     <div class="intro">
         <h2>🌟 المقدمة</h2>
@@ -251,11 +211,6 @@ TEMPLATES = {
     <div class="conclusion">
         <h2>✨ الخاتمة</h2>
         {{ conc | safe }}
-    </div>
-
-    <div class="footer">
-        <p><strong>Academic Reports Bot</strong></p>
-        <p>{{ date }}</p>
     </div>
 </div>
 </body>
@@ -308,14 +263,6 @@ TEMPLATES = {
     .section {
         margin-bottom: 50px;
     }
-    .footer {
-        text-align: center;
-        margin-top: 80px;
-        padding-top: 30px;
-        border-top: 1px solid #e0e0e0;
-        font-size: 11px;
-        color: #999;
-    }
 </style>
 </head>
 <body>
@@ -336,113 +283,6 @@ TEMPLATES = {
     <div class="section">
         <h2>الخاتمة</h2>
         {{ conc | safe }}
-    </div>
-
-    <div class="footer">
-        <p>{{ date }}</p>
-    </div>
-</body>
-</html>
-"""
-    },
-    
-    "colorful": {
-        "name": "🎨 ملون إبداعي",
-        "description": "تصميم ملون ومميز",
-        "html": """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<style>
-    @page { size: A4; margin: 2cm; }
-    body {
-        font-family: 'Arial', sans-serif;
-        direction: rtl;
-        text-align: right;
-        line-height: 1.8;
-        color: #2d3748;
-    }
-    .header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-        padding: 40px;
-        text-align: center;
-        border-radius: 15px;
-        margin-bottom: 40px;
-    }
-    h1 {
-        color: white;
-        font-size: 34px;
-        margin: 0;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-    }
-    .date {
-        color: white;
-        margin-top: 15px;
-        font-size: 14px;
-    }
-    h2 {
-        font-size: 24px;
-        margin-top: 35px;
-        padding: 15px 20px;
-        border-radius: 10px;
-        color: white;
-        font-weight: bold;
-    }
-    h2:nth-of-type(1) { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
-    h2:nth-of-type(2) { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-    h2:nth-of-type(3) { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
-    h2:nth-of-type(4) { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
-    h2:nth-of-type(5) { background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); }
-    h2:nth-of-type(6) { background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); }
-    p {
-        text-align: justify;
-        line-height: 1.8;
-        margin-bottom: 18px;
-        font-size: 15px;
-    }
-    .section {
-        background: #f8f9fa;
-        padding: 25px;
-        border-radius: 12px;
-        margin: 25px 0;
-    }
-    .footer {
-        text-align: center;
-        margin-top: 50px;
-        padding: 25px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 10px;
-    }
-</style>
-</head>
-<body>
-    <div class="header">
-        <h1>{{ title }}</h1>
-        <div class="date">📅 {{ date }}</div>
-    </div>
-
-    <div class="section">
-        <h2>📚 المقدمة</h2>
-        {{ intro | safe }}
-    </div>
-
-    {% for section in sections %}
-    <div class="section">
-        <h2>{{ loop.index }}. {{ section.title }}</h2>
-        {{ section.content | safe }}
-    </div>
-    {% endfor %}
-
-    <div class="section">
-        <h2>🎯 الخاتمة</h2>
-        {{ conc | safe }}
-    </div>
-
-    <div class="footer">
-        <p><strong>Academic Reports Bot</strong></p>
-        <p>{{ date }}</p>
     </div>
 </body>
 </html>
@@ -480,13 +320,6 @@ TEMPLATES = {
         text-transform: uppercase;
         letter-spacing: 1px;
     }
-    .doc-info {
-        text-align: center;
-        margin-top: 20px;
-        padding: 15px;
-        background: #edf2f7;
-        border-radius: 5px;
-    }
     h2 {
         color: #2c5282;
         margin-top: 35px;
@@ -506,23 +339,11 @@ TEMPLATES = {
     .section {
         margin-bottom: 40px;
     }
-    .footer {
-        text-align: center;
-        margin-top: 50px;
-        padding: 20px;
-        border-top: 3px solid #2c5282;
-        color: #4a5568;
-        font-size: 12px;
-    }
 </style>
 </head>
 <body>
     <div class="letterhead">
         <h1>{{ title }}</h1>
-        <div class="doc-info">
-            <strong>تاريخ الإصدار:</strong> {{ date }}<br>
-            <strong>نوع الوثيقة:</strong> تقرير أكاديمي
-        </div>
     </div>
 
     <div class="section">
@@ -540,12 +361,6 @@ TEMPLATES = {
     <div class="section">
         <h2>الخاتمة</h2>
         {{ conc | safe }}
-    </div>
-
-    <div class="footer">
-        <p><strong>Academic Reports Bot</strong></p>
-        <p>هذه وثيقة رسمية تم إنشاؤها إلكترونياً</p>
-        <p>{{ date }}</p>
     </div>
 </body>
 </html>
@@ -580,15 +395,43 @@ WRITING_STYLES = {
 }
 
 # ==========================================
+# Languages
+# ==========================================
+LANGUAGES = {
+    "ar": {
+        "name": "🇸🇦 العربية",
+        "prompt_instruction": "اكتب التقرير باللغة العربية الفصحى.",
+        "intro_label": "المقدمة",
+        "conclusion_label": "الخاتمة",
+        "report_type": "تقرير أكاديمي",
+        "html_lang": "ar",
+        "html_dir": "rtl",
+        "html_align": "right",
+        "font": "'Traditional Arabic', 'Arial', sans-serif",
+    },
+    "en": {
+        "name": "🇬🇧 English",
+        "prompt_instruction": "Write the report entirely in English.",
+        "intro_label": "Introduction",
+        "conclusion_label": "Conclusion",
+        "report_type": "Academic Report",
+        "html_lang": "en",
+        "html_dir": "ltr",
+        "html_align": "left",
+        "font": "'Arial', sans-serif",
+    }
+}
+
+# ==========================================
 # Generate Report Function
 # ==========================================
-def generate_report(topic, style="academic", template="classic"):
+def generate_report(topic, style="academic", template="classic", language="ar"):
     try:
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise Exception("API Key غير موجود")
         
-        logger.info(f"📝 Generating: {topic} | Style: {style} | Template: {template}")
+        logger.info(f"📝 Generating: {topic} | Style: {style} | Template: {template} | Lang: {language}")
         
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
@@ -600,20 +443,23 @@ def generate_report(topic, style="academic", template="classic"):
         parser = PydanticOutputParser(pydantic_object=AcademicReport)
         
         style_instruction = WRITING_STYLES[style]["prompt"]
+        lang_instruction = LANGUAGES[language]["prompt_instruction"]
         
         prompt = PromptTemplate(
             input_variables=["topic"],
             partial_variables={"format_instructions": parser.get_format_instructions()},
-            template=f"""أنت كاتب أكاديمي محترف. اكتب تقريرًا مفصلاً وشاملاً عن:
+            template=f"""You are a professional academic writer. Write a detailed and comprehensive report about:
 
-الموضوع: {{topic}}
+Topic: {{topic}}
 
-أسلوب الكتابة: {style_instruction}
+Writing style: {style_instruction}
 
-يجب أن يحتوي التقرير على:
-- مقدمة شاملة (150-200 كلمة)
-- 3-4 أقسام رئيسية (كل قسم 200-300 كلمة)
-- خاتمة موجزة (100-150 كلمة)
+Language instruction: {lang_instruction}
+
+The report must contain:
+- A comprehensive introduction (150-200 words)
+- 3-4 main sections (each section 200-300 words)
+- A concise conclusion (100-150 words)
 
 {{format_instructions}}"""
         )
@@ -625,14 +471,23 @@ def generate_report(topic, style="academic", template="classic"):
             paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
             return "".join([f"<p>{p}</p>" for p in paragraphs])
         
-        current_date = datetime.now().strftime("%Y/%m/%d")
+        lang_cfg = LANGUAGES[language]
         
-        html = Template(TEMPLATES[template]["html"]).render(
+        # Build language-aware HTML based on selected template
+        base_html = TEMPLATES[template]["html"]
+        
+        # Replace RTL/LTR specific attributes dynamically
+        html_content = base_html \
+            .replace('lang="ar"', f'lang="{lang_cfg["html_lang"]}"') \
+            .replace('dir="rtl"', f'dir="{lang_cfg["html_dir"]}"') \
+            .replace('text-align: right;', f'text-align: {lang_cfg["html_align"]};') \
+            .replace("'Traditional Arabic', 'Arial', sans-serif", lang_cfg["font"])
+        
+        html = Template(html_content).render(
             title=report.title,
             intro=clean(report.introduction),
             sections=[{'title': s.title, 'content': clean(s.content)} for s in report.sections],
             conc=clean(report.conclusion),
-            date=current_date
         )
         
         logger.info("📄 Converting to PDF...")
@@ -659,8 +514,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ✨ <b>المميزات:</b>
 - 5 أنماط كتابة مختلفة
-- 5 قوالب تصميم احترافية
-- تقارير مخصصة حسب احتياجاتك
+- 4 قوالب تصميم احترافية
+- تقارير بالعربية أو الإنجليزية
 - جودة عالية وسرعة فائقة
 
 📝 <b>كيف تبدأ؟</b>
@@ -695,6 +550,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # حفظ الموضوع في الجلسة
     user_sessions[user_id] = {"topic": topic}
     
+    # اختيار اللغة أولاً
+    keyboard = []
+    for key, value in LANGUAGES.items():
+        keyboard.append([InlineKeyboardButton(value["name"], callback_data=f"lang_{key}")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    safe_topic = topic.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
+    
+    await update.message.reply_text(
+        f"📝 <b>تم استلام الموضوع:</b>\n<i>{safe_topic}</i>\n\n🌐 <b>اختر لغة التقرير:</b>",
+        reply_markup=reply_markup,
+        parse_mode='HTML'
+    )
+
+async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    language = query.data.replace("lang_", "")
+    
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
+        return
+    
+    user_sessions[user_id]["language"] = language
+    
     # إنشاء قائمة اختيار نمط الكتابة
     keyboard = []
     for key, value in WRITING_STYLES.items():
@@ -702,11 +585,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # استخدام HTML escape للنص
-    safe_topic = topic.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
-    
-    await update.message.reply_text(
-        f"📝 <b>تم استلام الموضوع:</b>\n<i>{safe_topic}</i>\n\n🎨 <b>اختر نمط الكتابة المناسب:</b>",
+    lang_name = LANGUAGES[language]["name"]
+    await query.edit_message_text(
+        f"✅ <b>تم اختيار اللغة:</b> {lang_name}\n\n🎨 <b>اختر نمط الكتابة المناسب:</b>",
         reply_markup=reply_markup,
         parse_mode='HTML'
     )
@@ -752,32 +633,33 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[user_id]
     topic = session["topic"]
     style = session["style"]
+    language = session.get("language", "ar")
     
     template_name = TEMPLATES[template]["name"]
     style_name = WRITING_STYLES[style]["name"]
+    lang_name = LANGUAGES[language]["name"]
     
-    # استخدام HTML escape
     safe_topic = topic.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
     
     await query.edit_message_text(
-        f"⏳ <b>جاري إنشاء التقرير...</b>\n\n📝 الموضوع: <i>{safe_topic}</i>\n✍️ النمط: {style_name}\n🎨 القالب: {template_name}\n\n⏱️ يستغرق 30-60 ثانية...",
+        f"⏳ <b>جاري إنشاء التقرير...</b>\n\n📝 الموضوع: <i>{safe_topic}</i>\n🌐 اللغة: {lang_name}\n✍️ النمط: {style_name}\n🎨 القالب: {template_name}\n\n⏱️ يستغرق 30-60 ثانية...",
         parse_mode='HTML'
     )
     
     try:
-        pdf_bytes, title = generate_report(topic, style, template)
+        pdf_bytes, title = generate_report(topic, style, template, language)
         
         if pdf_bytes:
             safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:30])
             filename = f"{safe_name}.pdf"
             
-            # استخدام HTML escape للعنوان
             safe_title = title.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
             
             caption = f"""
 ✅ <b>تم إنشاء التقرير بنجاح!</b>
 
 📄 <b>العنوان:</b> {safe_title}
+🌐 <b>اللغة:</b> {lang_name}
 ✍️ <b>النمط:</b> {style_name}
 🎨 <b>القالب:</b> {template_name}
 
@@ -841,6 +723,7 @@ if __name__ == '__main__':
         
         application.add_handler(CommandHandler('start', start))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        application.add_handler(CallbackQueryHandler(language_callback, pattern='^lang_'))
         application.add_handler(CallbackQueryHandler(style_callback, pattern='^style_'))
         application.add_handler(CallbackQueryHandler(template_callback, pattern='^template_'))
         application.add_error_handler(error_handler)
@@ -855,4 +738,3 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
-
