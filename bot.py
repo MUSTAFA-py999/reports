@@ -509,16 +509,16 @@ The report must contain:
 # ==========================================
 # Generate DOCX Function
 # ==========================================
-def build_docx(report, language="ar"):
+def build_docx(report, language="ar", template="classic"):
     doc = Document()
     lang_cfg = LANGUAGES[language]
     is_rtl = lang_cfg["html_dir"] == "rtl"
 
-    for section in doc.sections:
-        section.top_margin = Inches(1)
-        section.bottom_margin = Inches(1)
-        section.left_margin = Inches(1.2)
-        section.right_margin = Inches(1.2)
+    for sec in doc.sections:
+        sec.top_margin = Inches(1)
+        sec.bottom_margin = Inches(1)
+        sec.left_margin = Inches(1.2)
+        sec.right_margin = Inches(1.2)
 
     def set_rtl(paragraph):
         from docx.oxml.ns import qn
@@ -530,14 +530,37 @@ def build_docx(report, language="ar"):
         jc.set(qn('w:val'), 'right')
         pPr.append(jc)
 
+    # ألوان وتنسيقات حسب القالب
+    TEMPLATE_STYLES = {
+        "classic":       {"title_color": RGBColor(0x2c, 0x3e, 0x50), "heading_color": RGBColor(0x34, 0x49, 0x5e), "heading_bg": RGBColor(0xec, 0xf0, 0xf1), "body_size": 12},
+        "modern":        {"title_color": RGBColor(0x66, 0x7e, 0xea), "heading_color": RGBColor(0x66, 0x7e, 0xea), "heading_bg": RGBColor(0xf8, 0xf9, 0xfa), "body_size": 12},
+        "minimal":       {"title_color": RGBColor(0x33, 0x33, 0x33), "heading_color": RGBColor(0x55, 0x55, 0x55), "heading_bg": None,                        "body_size": 11},
+        "professional":  {"title_color": RGBColor(0x2c, 0x52, 0x82), "heading_color": RGBColor(0x2c, 0x52, 0x82), "heading_bg": RGBColor(0xed, 0xf2, 0xf7), "body_size": 12},
+    }
+
+    ts = TEMPLATE_STYLES.get(template, TEMPLATE_STYLES["classic"])
+
     def add_heading(text):
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
         h = doc.add_paragraph()
         if is_rtl:
             set_rtl(h)
         r = h.add_run(text)
         r.bold = True
         r.font.size = Pt(14)
-        r.font.color.rgb = RGBColor(0x34, 0x49, 0x5e)
+        r.font.color.rgb = ts["heading_color"]
+        # لون خلفية للعنوان إن وُجد
+        if ts["heading_bg"]:
+            from docx.oxml.ns import qn
+            from docx.oxml import OxmlElement
+            pPr = h._p.get_or_add_pPr()
+            shd = OxmlElement('w:shd')
+            bg = ts["heading_bg"]
+            hex_color = '{:02X}{:02X}{:02X}'.format(bg.r, bg.g, bg.b)
+            shd.set(qn('w:fill'), hex_color)
+            shd.set(qn('w:val'), 'clear')
+            pPr.append(shd)
 
     def add_body(text):
         for line in text.split('\n'):
@@ -548,9 +571,10 @@ def build_docx(report, language="ar"):
                 if is_rtl:
                     set_rtl(p)
                 for run in p.runs:
-                    run.font.size = Pt(12)
+                    run.font.size = Pt(ts["body_size"])
+                    run.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
 
-    # Title
+    # العنوان الرئيسي
     title_para = doc.add_paragraph()
     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if is_rtl:
@@ -558,7 +582,22 @@ def build_docx(report, language="ar"):
     run = title_para.add_run(report.title)
     run.bold = True
     run.font.size = Pt(22)
-    run.font.color.rgb = RGBColor(0x2c, 0x3e, 0x50)
+    run.font.color.rgb = ts["title_color"]
+
+    # خط فاصل تحت العنوان لقالب classic و professional
+    if template in ("classic", "professional"):
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+        pPr = title_para._p.get_or_add_pPr()
+        pBdr = OxmlElement('w:pBdr')
+        bottom = OxmlElement('w:bottom')
+        bottom.set(qn('w:val'), 'single')
+        bottom.set(qn('w:sz'), '12')
+        bottom.set(qn('w:space'), '1')
+        bottom.set(qn('w:color'), '2C3E50' if template == "classic" else '2C5282')
+        pBdr.append(bottom)
+        pPr.append(pBdr)
+
     doc.add_paragraph()
 
     add_heading(f"📚 {lang_cfg['intro_label']}")
@@ -778,7 +817,7 @@ async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 filename = f"{safe_name}.pdf"
                 file_bytes = pdf_bytes
             else:
-                file_bytes = build_docx(report_obj, language)
+                file_bytes = build_docx(report_obj, language, template)
                 filename = f"{safe_name}.docx"
             
             await context.bot.send_document(
@@ -853,3 +892,4 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
+
