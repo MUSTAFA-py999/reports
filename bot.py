@@ -124,7 +124,11 @@ async def queue_worker(app):
 # ═══════════════════════════════════════════════════
 class SmartQuestions(BaseModel):
     questions: List[str] = Field(
-        description="List of exactly 3 open-ended questions to ask the student about their report topic."
+        description=(
+            "List of open-ended questions (between 2 and 5, based on topic complexity) "
+            "to ask the student about their report. Decide the number based on how much "
+            "clarification the topic needs."
+        )
     )
 
 class ReportBlock(BaseModel):
@@ -171,13 +175,19 @@ LANGUAGES = {
         "cons_label": "❌ العيوب",
         "instruction": "Write ALL content in formal Arabic (فصحى). Every word must be Arabic.",
         "q_prompt": (
-            "أنت مساعد أكاديمي ذكي. الطالب الجامعي يريد كتابة تقرير عن: \"{topic}\".\n"
-            "اكتب 3 أسئلة مفتوحة بالعربية تساعدك على فهم ما يريده الطالب بالضبط في تقريره.\n"
-            "اجعل الأسئلة محددة وذات صلة مباشرة بالموضوع.\n"
-            "مثال على الأسئلة الجيدة:\n"
-            "- ما الجانب الأكثر أهمية الذي تريد التركيز عليه في هذا الموضوع؟\n"
-            "- هل تريد المقارنة بين أكثر من جانب؟ وضح.\n"
-            "- ما الخلاصة أو الموقف الذي تريد أن يخرج به القارئ؟\n"
+            "أنت مساعد أكاديمي ذكي متخصص في مساعدة طلاب الجامعة.\n"
+            "الطالب يريد كتابة تقرير جامعي عن: \"{topic}\".\n\n"
+            "اكتب أسئلة مفتوحة بالعربية (مع استخدام المصطلحات الإنجليزية التقنية عند الضرورة) "
+            "لتفهم ما يريده الطالب بالضبط في تقريره.\n"
+            "حدد عدد الأسئلة بنفسك (من 2 إلى 5) بناءً على مدى تعقيد الموضوع وحاجته للتوضيح:\n"
+            "- الموضوعات البسيطة والواضحة: 2 أسئلة\n"
+            "- الموضوعات المتوسطة: 3 أسئلة\n"
+            "- الموضوعات المعقدة أو متعددة الجوانب: 4-5 أسئلة\n\n"
+            "اجعل الأسئلة محددة وذات صلة مباشرة بالموضوع، وتساعد على بناء هيكل التقرير.\n"
+            "أمثلة على أسئلة جيدة:\n"
+            "- ما الجانب الذي تريد التركيز عليه أكثر؟\n"
+            "- هل تريد مقارنة بين approaches معينة؟ وضّح.\n"
+            "- ما الـ use cases أو التطبيقات العملية التي تريد تغطيتها؟\n"
         ),
         "answer_prompt": "اكتب التقرير باللغة العربية الفصحى بالكامل. كل كلمة يجب أن تكون عربية.",
     },
@@ -191,9 +201,15 @@ LANGUAGES = {
         "cons_label": "❌ Cons",
         "instruction": "Write ALL content in English. Every word must be English.",
         "q_prompt": (
-            "You are a smart academic assistant. A university student wants to write a report about: \"{topic}\".\n"
-            "Write exactly 3 open-ended questions in English to understand what the student specifically wants in their report.\n"
-            "Make the questions specific and directly relevant to the topic.\n"
+            "You are a smart academic assistant helping university students.\n"
+            "The student wants to write a university report about: \"{topic}\".\n\n"
+            "Write open-ended questions in Arabic (using English technical terms when needed) "
+            "to understand what the student specifically wants in their report.\n"
+            "Decide the number of questions yourself (2 to 5) based on topic complexity:\n"
+            "- Simple/clear topics: 2 questions\n"
+            "- Moderate topics: 3 questions\n"
+            "- Complex/multi-faceted topics: 4-5 questions\n\n"
+            "Make questions specific and directly useful for structuring the report.\n"
         ),
         "answer_prompt": "Write the entire report in English. Every word must be English.",
     },
@@ -222,7 +238,7 @@ def get_llm():
     if not api_key:
         raise Exception("GOOGLE_API_KEY not set")
     return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-3-flash-preview",
         temperature=0.5,
         google_api_key=api_key,
         max_retries=3
@@ -600,7 +616,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✨ <b>كيف يعمل البوت؟</b>
 1️⃣ أرسل موضوع تقريرك
 2️⃣ اختر اللغة
-3️⃣ أجب على <b>3 أسئلة ذكية</b> مخصصة لموضوعك
+3️⃣ أجب على <b>أسئلة ذكية</b> مخصصة لموضوعك
 4️⃣ اختر العمق والتصميم
 5️⃣ احصل على تقريرك PDF احترافي 🎉
 
@@ -698,7 +714,7 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         first_q = questions[0]
         lang_name= LANGUAGES[lang]["name"]
         await query.edit_message_text(
-            f"🧠 <b>بناءً على موضوعك، لدي {len(questions)} أسئلة لأفهم ما تريده بالضبط:</b>\n\n"
+            f"🧠 <b>بناءً على موضوعك، لدي {len(questions)} {'سؤال' if len(questions) == 1 else 'أسئلة'} لأفهم ما تريده بالضبط:</b>\n\n"
             f"❓ <b>السؤال 1/{len(questions)}:</b>\n{first_q}\n\n"
             f"<i>اكتب إجابتك بحرية 👇</i>",
             parse_mode='HTML'
