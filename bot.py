@@ -1,645 +1,806 @@
 import os
+import asyncio
 import threading
 import logging
+import html as html_lib
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+from telegram.ext import (
+    ApplicationBuilder, ContextTypes, CommandHandler,
+    MessageHandler, CallbackQueryHandler, filters
+)
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
-from jinja2 import Template
-from typing import List
+from typing import List, Optional
 from io import BytesIO
-from weasyprint import HTML
-from docx import Document
-from docx.shared import Pt, RGBColor, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
+from weasyprint import HTML as WeasyHTML
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "✅ Academic Reports Bot - Production Ready!"
+    return "✅ Smart University Reports Bot v4.0"
 
 @flask_app.route('/health')
 def health():
-    return {"status": "healthy", "bot": "active", "version": "2.0"}, 200
+    return {"status": "healthy", "version": "4.0"}, 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
+
+# ═══════════════════════════════════════════════════
+# QUEUE SYSTEM
+# ═══════════════════════════════════════════════════
+report_queue: asyncio.Queue = None
+active_jobs = {}          # user_id → True  (currently generating)
+queue_positions = {}      # user_id → position in queue
+MAX_CONCURRENT = 2        # عدد التقارير التي تُعالج في نفس الوقت
+
+
+async def queue_worker(app):
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+
+    async def process_one(user_id, session, msg_id):
+        async with semaphore:
+            active_jobs[user_id] = True
+            # Update queue positions for waiting users
+            for uid in list(queue_positions.keys()):
+                if queue_positions[uid] > 0:
+                    queue_positions[uid] -= 1
+
+            try:
+                loop = asyncio.get_event_loop()
+                pdf_bytes, title = await loop.run_in_executor(
+                    None, generate_report, session
+                )
+
+                lang     = session.get("language", "ar")
+                lang_name= LANGUAGES[lang]["name"]
+                depth    = session.get("depth", "medium")
+                depth_name = DEPTH_OPTIONS[depth]["name"]
+                tpl      = session.get("template", "classic")
+                tpl_name = TEMPLATES[tpl]["name"]
+
+                if pdf_bytes:
+                    safe_name  = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:40])
+                    safe_title = title.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
+                    caption = (
+                        f"✅ <b>تقريرك جاهز يا طالبنا!</b>\n\n"
+                        f"📄 <b>{safe_title}</b>\n"
+                        f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
+                        f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
+                    )
+                    await app.bot.send_document(
+                        chat_id=user_id,
+                        document=BytesIO(pdf_bytes),
+                        filename=f"{safe_name}.pdf",
+                        caption=caption,
+                        parse_mode='HTML'
+                    )
+                    try:
+                        await app.bot.delete_message(chat_id=user_id, message_id=msg_id)
+                    except:
+                        pass
+                    logger.info(f"✅ Report sent to {user_id}")
+                else:
+                    err = str(title).replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
+                    await app.bot.send_message(
+                        chat_id=user_id,
+                        text=f"❌ <b>فشل إنشاء التقرير:</b>\n{err[:300]}\n\n🔄 أرسل موضوعاً جديداً للمحاولة مجدداً.",
+                        parse_mode='HTML'
+                    )
+            except Exception as e:
+                logger.error(f"Queue worker error for {user_id}: {e}", exc_info=True)
+                err = str(e)[:200].replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
+                await app.bot.send_message(
+                    chat_id=user_id,
+                    text=f"❌ <b>خطأ غير متوقع:</b>\n<code>{err}</code>\n\n🔄 أرسل موضوعاً جديداً.",
+                    parse_mode='HTML'
+                )
+            finally:
+                active_jobs.pop(user_id, None)
+                queue_positions.pop(user_id, None)
+                user_sessions.pop(user_id, None)
+
+    while True:
+        item = await report_queue.get()
+        user_id, session, msg_id = item
+        asyncio.create_task(process_one(user_id, session, msg_id))
+        report_queue.task_done()
+
+
+# ═══════════════════════════════════════════════════
+# PYDANTIC MODELS
+# ═══════════════════════════════════════════════════
+class SmartQuestions(BaseModel):
+    questions: List[str] = Field(
+        description="List of exactly 3 open-ended questions to ask the student about their report topic."
+    )
+
+class ReportBlock(BaseModel):
+    block_type: str = Field(
+        description=(
+            "Block type — must be ONE of: "
+            "'paragraph', 'bullets', 'numbered_list', 'table', "
+            "'pros_cons', 'comparison', 'stats', 'examples', 'quote'"
+        )
+    )
+    title: str = Field(description="Section heading")
+    text: Optional[str] = Field(default=None)
+    items: Optional[List[str]] = Field(default=None)
+    pros: Optional[List[str]] = Field(default=None)
+    cons: Optional[List[str]] = Field(default=None)
+    headers: Optional[List[str]] = Field(default=None)
+    rows: Optional[List[List[str]]] = Field(default=None)
+    side_a: Optional[str] = Field(default=None)
+    side_b: Optional[str] = Field(default=None)
+    criteria: Optional[List[str]] = Field(default=None)
+    side_a_values: Optional[List[str]] = Field(default=None)
+    side_b_values: Optional[List[str]] = Field(default=None)
+
+class DynamicReport(BaseModel):
+    title: str = Field(description="Report title")
+    introduction: str = Field(description="Introduction paragraph (120-180 words)")
+    blocks: List[ReportBlock] = Field(description="Content blocks")
+    conclusion: str = Field(description="Conclusion paragraph (100-140 words). MANDATORY.")
+
+
+# ═══════════════════════════════════════════════════
+# CONFIG
+# ═══════════════════════════════════════════════════
 user_sessions = {}
-
-class Section(BaseModel):
-    title: str = Field(description="عنوان القسم")
-    content: str = Field(description="المحتوى")
-
-class AcademicReport(BaseModel):
-    title: str = Field(description="عنوان التقرير")
-    introduction: str = Field(description="المقدمة")
-    sections: List[Section] = Field(description="الأقسام")
-    conclusion: str = Field(description="الخاتمة")
-
-TEMPLATES = {
-    "classic": {
-        "name": "🎓 كلاسيكي أكاديمي",
-        "html": """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<style>
-    @page { size: A4; margin: 2.5cm; }
-    body { font-family: 'Traditional Arabic', 'Arial', sans-serif; direction: rtl; text-align: right; line-height: 1.9; color: #2c3e50; }
-    .header { text-align: center; border-bottom: 4px solid #34495e; padding-bottom: 20px; margin-bottom: 40px; }
-    h1 { color: #2c3e50; font-size: 32px; margin-bottom: 10px; }
-    h2 { color: #34495e; margin-top: 30px; border-right: 5px solid #3498db; padding: 12px 15px; background: #ecf0f1; font-size: 22px; }
-    p { text-align: justify; line-height: 1.9; margin-bottom: 16px; font-size: 15px; }
-    .intro, .conclusion { background-color: #ecf0f1; padding: 25px; border-radius: 8px; margin: 25px 0; border-right: 5px solid #3498db; }
-</style>
-</head>
-<body>
-<div class="header"><h1>{{ title }}</h1></div>
-<div class="intro"><h2>📚 المقدمة</h2>{{ intro | safe }}</div>
-{% for section in sections %}
-<div><h2>{{ loop.index }}. {{ section.title }}</h2>{{ section.content | safe }}</div>
-{% endfor %}
-<div class="conclusion"><h2>🎯 الخاتمة</h2>{{ conc | safe }}</div>
-</body>
-</html>
-"""
-    },
-    "modern": {
-        "name": "🚀 عصري حديث",
-        "html": """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<style>
-    @page { size: A4; margin: 2cm; }
-    body { font-family: 'Arial', sans-serif; direction: rtl; text-align: right; line-height: 1.8; color: #1a1a2e; }
-    .container { background: white; padding: 40px; }
-    h1 { text-align: center; color: #667eea; font-size: 36px; margin-bottom: 30px; font-weight: bold; }
-    h2 { color: #667eea; margin-top: 35px; padding: 15px 20px; background: linear-gradient(90deg, #f8f9fa 0%, white 100%); border-right: 6px solid #764ba2; border-radius: 0 10px 10px 0; font-size: 24px; }
-    p { text-align: justify; line-height: 1.8; margin-bottom: 18px; font-size: 15px; color: #2d3748; }
-    .intro, .conclusion { background: #f5f7fa; padding: 30px; border-radius: 15px; margin: 30px 0; }
-</style>
-</head>
-<body>
-<div class="container">
-<h1>{{ title }}</h1>
-<div class="intro"><h2>🌟 المقدمة</h2>{{ intro | safe }}</div>
-{% for section in sections %}
-<div><h2>{{ loop.index }}. {{ section.title }}</h2>{{ section.content | safe }}</div>
-{% endfor %}
-<div class="conclusion"><h2>✨ الخاتمة</h2>{{ conc | safe }}</div>
-</div>
-</body>
-</html>
-"""
-    },
-    "minimal": {
-        "name": "⚪ بسيط أنيق",
-        "html": """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<style>
-    @page { size: A4; margin: 3cm; }
-    body { font-family: 'Arial', sans-serif; direction: rtl; text-align: right; line-height: 2; color: #333; max-width: 800px; margin: 0 auto; }
-    h1 { text-align: center; font-size: 32px; font-weight: 300; letter-spacing: 2px; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 1px solid #e0e0e0; }
-    h2 { font-size: 20px; font-weight: 500; margin-top: 40px; margin-bottom: 20px; color: #555; }
-    p { text-align: justify; line-height: 2; margin-bottom: 20px; font-size: 14px; color: #666; }
-    .section { margin-bottom: 50px; }
-</style>
-</head>
-<body>
-<h1>{{ title }}</h1>
-<div class="section"><h2>المقدمة</h2>{{ intro | safe }}</div>
-{% for section in sections %}
-<div class="section"><h2>{{ section.title }}</h2>{{ section.content | safe }}</div>
-{% endfor %}
-<div class="section"><h2>الخاتمة</h2>{{ conc | safe }}</div>
-</body>
-</html>
-"""
-    },
-    "professional": {
-        "name": "💼 احترافي رسمي",
-        "html": """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<style>
-    @page { size: A4; margin: 2.5cm; }
-    body { font-family: 'Traditional Arabic', 'Times New Roman', serif; direction: rtl; text-align: right; line-height: 1.9; color: #1a202c; }
-    .letterhead { border: 3px solid #2c5282; padding: 30px; margin-bottom: 40px; background: linear-gradient(to bottom, #f7fafc 0%, white 100%); }
-    h1 { text-align: center; color: #2c5282; font-size: 30px; margin: 0; letter-spacing: 1px; }
-    h2 { color: #2c5282; margin-top: 35px; padding: 12px 20px; background: #edf2f7; border-right: 6px solid #2c5282; font-size: 22px; letter-spacing: 0.5px; }
-    p { text-align: justify; line-height: 1.9; margin-bottom: 18px; font-size: 15px; }
-    .section { margin-bottom: 40px; }
-</style>
-</head>
-<body>
-<div class="letterhead"><h1>{{ title }}</h1></div>
-<div class="section"><h2>المقدمة</h2>{{ intro | safe }}</div>
-{% for section in sections %}
-<div class="section"><h2>{{ loop.index }}. {{ section.title }}</h2>{{ section.content | safe }}</div>
-{% endfor %}
-<div class="section"><h2>الخاتمة</h2>{{ conc | safe }}</div>
-</body>
-</html>
-"""
-    }
-}
-
-WRITING_STYLES = {
-    "academic": {
-        "name": "🎓 أكاديمي متقدم",
-        "prompt": "اكتب بأسلوب أكاديمي رسمي جداً مع استخدام مصطلحات علمية ولغة فصحى متقدمة. استخدم جمل معقدة ومفردات متخصصة."
-    },
-    "simple": {
-        "name": "📖 مبسط سهل",
-        "prompt": "اكتب بأسلوب مبسط وسهل الفهم مناسب لطلاب المدارس. استخدم جمل قصيرة وواضحة وأمثلة بسيطة."
-    },
-    "detailed": {
-        "name": "📚 تفصيلي شامل",
-        "prompt": "اكتب بأسلوب تفصيلي جداً مع شرح كل نقطة بعمق. أضف أمثلة وتفاصيل دقيقة وتحليلات متعمقة."
-    },
-    "creative": {
-        "name": "✨ إبداعي ملهم",
-        "prompt": "اكتب بأسلوب إبداعي جذاب مع استخدام تشبيهات واستعارات. اجعل المحتوى ممتعاً وملهماً."
-    },
-    "formal": {
-        "name": "💼 رسمي احترافي",
-        "prompt": "اكتب بأسلوب رسمي احترافي مناسب للأعمال والمؤسسات. استخدم لغة محترمة ودقيقة."
-    }
-}
 
 LANGUAGES = {
     "ar": {
         "name": "🇸🇦 العربية",
-        "prompt_instruction": "اكتب التقرير باللغة العربية الفصحى.",
+        "dir": "rtl", "align": "right", "lang_attr": "ar",
+        "font": "'Traditional Arabic', 'Arial', sans-serif",
         "intro_label": "المقدمة",
         "conclusion_label": "الخاتمة",
-        "html_lang": "ar",
-        "html_dir": "rtl",
-        "html_align": "right",
-        "font": "'Traditional Arabic', 'Arial', sans-serif",
+        "pros_label": "✅ المزايا",
+        "cons_label": "❌ العيوب",
+        "instruction": "Write ALL content in formal Arabic (فصحى). Every word must be Arabic.",
+        "q_prompt": (
+            "أنت مساعد أكاديمي ذكي. الطالب الجامعي يريد كتابة تقرير عن: \"{topic}\".\n"
+            "اكتب 3 أسئلة مفتوحة بالعربية تساعدك على فهم ما يريده الطالب بالضبط في تقريره.\n"
+            "اجعل الأسئلة محددة وذات صلة مباشرة بالموضوع.\n"
+            "مثال على الأسئلة الجيدة:\n"
+            "- ما الجانب الأكثر أهمية الذي تريد التركيز عليه في هذا الموضوع؟\n"
+            "- هل تريد المقارنة بين أكثر من جانب؟ وضح.\n"
+            "- ما الخلاصة أو الموقف الذي تريد أن يخرج به القارئ؟\n"
+        ),
+        "answer_prompt": "اكتب التقرير باللغة العربية الفصحى بالكامل. كل كلمة يجب أن تكون عربية.",
     },
     "en": {
         "name": "🇬🇧 English",
-        "prompt_instruction": "Write the report entirely in English.",
+        "dir": "ltr", "align": "left", "lang_attr": "en",
+        "font": "'Arial', 'Helvetica', sans-serif",
         "intro_label": "Introduction",
         "conclusion_label": "Conclusion",
-        "html_lang": "en",
-        "html_dir": "ltr",
-        "html_align": "left",
-        "font": "'Arial', sans-serif",
-    }
+        "pros_label": "✅ Pros",
+        "cons_label": "❌ Cons",
+        "instruction": "Write ALL content in English. Every word must be English.",
+        "q_prompt": (
+            "You are a smart academic assistant. A university student wants to write a report about: \"{topic}\".\n"
+            "Write exactly 3 open-ended questions in English to understand what the student specifically wants in their report.\n"
+            "Make the questions specific and directly relevant to the topic.\n"
+        ),
+        "answer_prompt": "Write the entire report in English. Every word must be English.",
+    },
 }
 
-TEMPLATE_DOCX_STYLES = {
-    "classic":      {"title_color": RGBColor(0x2c, 0x3e, 0x50), "heading_color": RGBColor(0x34, 0x49, 0x5e), "heading_bg": "ECF0F1", "body_size": 12},
-    "modern":       {"title_color": RGBColor(0x66, 0x7e, 0xea), "heading_color": RGBColor(0x66, 0x7e, 0xea), "heading_bg": "F8F9FA", "body_size": 12},
-    "minimal":      {"title_color": RGBColor(0x33, 0x33, 0x33), "heading_color": RGBColor(0x55, 0x55, 0x55), "heading_bg": None,      "body_size": 11},
-    "professional": {"title_color": RGBColor(0x2c, 0x52, 0x82), "heading_color": RGBColor(0x2c, 0x52, 0x82), "heading_bg": "EDF2F7", "body_size": 12},
+TEMPLATES = {
+    "classic":      {"name": "🎓 كلاسيكي",   "primary": "#2c3e50", "accent": "#3498db", "bg": "#ecf0f1", "bg2": "#f8f9fa"},
+    "modern":       {"name": "🚀 عصري",      "primary": "#5a67d8", "accent": "#667eea", "bg": "#ebf4ff", "bg2": "#ffffff"},
+    "minimal":      {"name": "⚪ بسيط",      "primary": "#2d3748", "accent": "#718096", "bg": "#f7fafc", "bg2": "#ffffff"},
+    "professional": {"name": "💼 احترافي",   "primary": "#1a365d", "accent": "#2b6cb0", "bg": "#bee3f8", "bg2": "#f0f4ff"},
+    "dark_elegant": {"name": "🖤 أنيق داكن", "primary": "#d4af37", "accent": "#f6d860", "bg": "#2d3748", "bg2": "#4a5568"},
 }
 
-def generate_report(topic, style="academic", template="classic", language="ar"):
+DEPTH_OPTIONS = {
+    "short":    {"name": "📝 مختصر (3 أقسام)",  "blocks": 3, "words": "80-120"},
+    "medium":   {"name": "📄 متوسط (4 أقسام)",  "blocks": 4, "words": "160-220"},
+    "detailed": {"name": "📚 مفصل (5 أقسام)",   "blocks": 5, "words": "250-320"},
+}
+
+
+# ═══════════════════════════════════════════════════
+# LLM HELPERS
+# ═══════════════════════════════════════════════════
+def get_llm():
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise Exception("GOOGLE_API_KEY not set")
+    return ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        temperature=0.5,
+        google_api_key=api_key,
+        max_retries=3
+    )
+
+
+def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
+    lang   = LANGUAGES[language_key]
+    llm    = get_llm()
+    parser = PydanticOutputParser(pydantic_object=SmartQuestions)
+    prompt = (
+        lang["q_prompt"].format(topic=topic)
+        + "\n\n"
+        + parser.get_format_instructions()
+    )
+    result = llm.invoke([HumanMessage(content=prompt)])
+    parsed = parser.parse(result.content)
+    return parsed.questions[:3]
+
+
+def build_report_prompt(session: dict, format_instructions: str) -> str:
+    topic    = session["topic"]
+    lang_key = session.get("language", "ar")
+    depth    = session.get("depth", "medium")
+    lang     = LANGUAGES[lang_key]
+    d        = DEPTH_OPTIONS[depth]
+    questions = session.get("dynamic_questions", [])
+    answers   = session.get("answers", [])
+
+    qa_block = ""
+    for i, (q, a) in enumerate(zip(questions, answers), 1):
+        qa_block += f"Q{i}: {q}\nA{i}: {a}\n\n"
+
+    return f"""You are an expert academic writer specializing in university-level reports.
+
+══════════════════════════════════════
+TARGET AUDIENCE: University students (undergraduate/graduate)
+TOPIC: {topic}
+LANGUAGE: {lang["instruction"]}
+DEPTH: Exactly {d["blocks"]} content blocks. Each block: {d["words"]} words.
+══════════════════════════════════════
+
+STUDENT'S REQUIREMENTS (from their answers):
+{qa_block.strip()}
+
+══════════════════════════════════════
+BLOCK TYPES AVAILABLE:
+- "paragraph"     → fill "text" with continuous paragraph text
+- "bullets"       → fill "items" with 4-7 bullet point strings
+- "numbered_list" → fill "items" with 4-7 numbered step strings
+- "table"         → fill "headers" (list) + "rows" (list of lists, 4-6 rows)
+- "pros_cons"     → fill "pros" list (4-6) + "cons" list (4-6)
+- "comparison"    → fill "side_a", "side_b", "criteria", "side_a_values", "side_b_values" (all same length 5-7)
+- "stats"         → fill "items" as "Label: value — explanation" (4-6 items)
+- "examples"      → fill "items" with 4-6 concrete real-world example strings
+- "quote"         → fill "text" with a relevant quote or key definition
+
+══════════════════════════════════════
+INTELLIGENCE RULES:
+1. Analyze student answers deeply — their requirements define the structure
+2. Choose block types that BEST serve the content:
+   • Comparisons → use "comparison" or "pros_cons"
+   • Steps/methods → use "numbered_list"
+   • Data/numbers → use "stats" or "table"
+   • Concepts → use "paragraph"
+   • Lists of points → use "bullets"
+3. Make the report genuinely useful for a university assignment
+4. Use academic language appropriate for university level
+5. "conclusion" is MANDATORY — never omit it
+6. ALL text must be in the specified language — zero code-switching
+
+{format_instructions}"""
+
+
+def generate_report(session: dict):
     try:
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise Exception("API Key غير موجود")
-
-        logger.info(f"📝 Generating: {topic} | Style: {style} | Template: {template} | Lang: {language}")
-
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=0.5,
-            google_api_key=api_key,
-            max_retries=3
-        )
-
-        parser = PydanticOutputParser(pydantic_object=AcademicReport)
-
-        style_instruction = WRITING_STYLES[style]["prompt"]
-        lang_instruction = LANGUAGES[language]["prompt_instruction"]
-
-        prompt = PromptTemplate(
-            input_variables=["topic"],
-            partial_variables={"format_instructions": parser.get_format_instructions()},
-            template=f"""You are a professional academic writer. Write a detailed and comprehensive report about:
-
-Topic: {{topic}}
-
-Writing style: {style_instruction}
-
-Language instruction: {lang_instruction}
-
-The report must contain:
-- A comprehensive introduction (150-200 words)
-- 3-4 main sections (each section 200-300 words)
-- A concise conclusion (100-150 words)
-
-IMPORTANT: You MUST include the "conclusion" field in your JSON output. Do not omit it under any circumstances.
-
-{{format_instructions}}"""
-        )
+        llm    = get_llm()
+        parser = PydanticOutputParser(pydantic_object=DynamicReport)
+        prompt = build_report_prompt(session, parser.get_format_instructions())
 
         report = None
         for attempt in range(3):
             try:
-                report = (prompt | llm | parser).invoke({"topic": topic})
+                result = llm.invoke([HumanMessage(content=prompt)])
+                report = parser.parse(result.content)
                 break
-            except Exception as parse_err:
+            except Exception as e:
                 if attempt == 2:
-                    raise parse_err
-                logger.warning(f"Parse attempt {attempt+1} failed, retrying...")
+                    raise e
+                logger.warning(f"Parse attempt {attempt+1} failed: {e}")
 
-        logger.info("✅ Report generated")
-
-        def clean(text):
-            paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
-            return "".join([f"<p>{p}</p>" for p in paragraphs])
-
-        lang_cfg = LANGUAGES[language]
-        base_html = TEMPLATES[template]["html"]
-
-        html_content = base_html \
-            .replace('lang="ar"', f'lang="{lang_cfg["html_lang"]}"') \
-            .replace('dir="rtl"', f'dir="{lang_cfg["html_dir"]}"') \
-            .replace('text-align: right;', f'text-align: {lang_cfg["html_align"]};') \
-            .replace("'Traditional Arabic', 'Arial', sans-serif", lang_cfg["font"])
-
-        html = Template(html_content).render(
-            title=report.title,
-            intro=clean(report.introduction),
-            sections=[{'title': s.title, 'content': clean(s.content)} for s in report.sections],
-            conc=clean(report.conclusion),
-        )
-
-        logger.info("📄 Converting to PDF...")
-        pdf_bytes = HTML(string=html).write_pdf()
-
-        logger.info("✅ PDF created")
-        return pdf_bytes, report.title, report
+        html_str  = render_html(report, session.get("template", "classic"), session.get("language", "ar"))
+        pdf_bytes = WeasyHTML(string=html_str).write_pdf()
+        return pdf_bytes, report.title
 
     except Exception as e:
-        logger.error(f"❌ Error: {e}", exc_info=True)
-        return None, str(e), None
+        logger.error(f"❌ generate_report: {e}", exc_info=True)
+        return None, str(e)
 
 
-def build_docx(report, language="ar", template="classic"):
-    import re
+# ═══════════════════════════════════════════════════
+# HTML RENDERER
+# ═══════════════════════════════════════════════════
+def esc(v):
+    return html_lib.escape(str(v)) if v is not None else ""
 
-    doc = Document()
-    lang_cfg = LANGUAGES[language]
-    is_rtl = lang_cfg["html_dir"] == "rtl"
-    ts = TEMPLATE_DOCX_STYLES.get(template, TEMPLATE_DOCX_STYLES["classic"])
+def text_to_paras(text: str, align: str) -> str:
+    lines = [l.strip() for l in str(text).split('\n') if l.strip()]
+    if not lines:
+        lines = [str(text)]
+    return "".join(
+        f'<p style="text-align:{align};margin:0 0 10px 0;line-height:1.95;">{esc(l)}</p>'
+        for l in lines
+    )
 
-    for sec in doc.sections:
-        sec.top_margin = Inches(1)
-        sec.bottom_margin = Inches(1)
-        sec.left_margin = Inches(1.2)
-        sec.right_margin = Inches(1.2)
+def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
+    p   = tc["primary"]
+    a   = tc["accent"]
+    bg  = tc["bg"]
+    bg2 = tc["bg2"]
+    align  = lang["align"]
+    is_rtl = lang["dir"] == "rtl"
+    b_side = "border-right" if is_rtl else "border-left"
+    p_side = "padding-right" if is_rtl else "padding-left"
+    is_dark = tc["primary"] == "#d4af37"
+    txt_color = "#e2e8f0" if is_dark else "#333333"
+    h2_bg     = "#3d4a5c" if is_dark else bg
 
-    def set_rtl(paragraph):
-        pPr = paragraph._p.get_or_add_pPr()
-        bidi = OxmlElement('w:bidi')
-        pPr.insert(0, bidi)
-        jc = OxmlElement('w:jc')
-        jc.set(qn('w:val'), 'right')
-        pPr.append(jc)
+    h2 = (
+        f'<h2 style="color:{p};font-size:15px;font-weight:bold;'
+        f'padding:10px 16px;background:{h2_bg};'
+        f'{b_side}:5px solid {a};margin:0 0 13px 0;color:{p};">'
+        f'{esc(b.title)}</h2>'
+    )
+    bt = (b.block_type or "paragraph").strip().lower()
 
-    def add_shading(paragraph, hex_color):
-        pPr = paragraph._p.get_or_add_pPr()
-        shd = OxmlElement('w:shd')
-        shd.set(qn('w:fill'), hex_color)
-        shd.set(qn('w:val'), 'clear')
-        pPr.append(shd)
+    if bt == "paragraph":
+        return f'<div style="margin:18px 0;">{h2}{text_to_paras(b.text or "", align)}</div>'
 
-    def add_border_right(paragraph, hex_color):
-        pPr = paragraph._p.get_or_add_pPr()
-        pBdr = OxmlElement('w:pBdr')
-        right = OxmlElement('w:right')
-        right.set(qn('w:val'), 'single')
-        right.set(qn('w:sz'), '24')
-        right.set(qn('w:space'), '4')
-        right.set(qn('w:color'), hex_color)
-        pBdr.append(right)
-        pPr.append(pBdr)
+    elif bt in ("bullets", "numbered_list"):
+        items = b.items or []
+        tag   = "ol" if bt == "numbered_list" else "ul"
+        lis   = "".join(f'<li style="margin-bottom:7px;line-height:1.8;color:{txt_color};">{esc(i)}</li>' for i in items)
+        return f'<div style="margin:18px 0;">{h2}<{tag} style="{p_side}:22px;margin:0;">{lis}</{tag}></div>'
 
-    def add_bottom_border(paragraph, hex_color):
-        pPr = paragraph._p.get_or_add_pPr()
-        pBdr = OxmlElement('w:pBdr')
-        bottom = OxmlElement('w:bottom')
-        bottom.set(qn('w:val'), 'single')
-        bottom.set(qn('w:sz'), '12')
-        bottom.set(qn('w:space'), '1')
-        bottom.set(qn('w:color'), hex_color)
-        pBdr.append(bottom)
-        pPr.append(pBdr)
+    elif bt == "stats":
+        items = b.items or []
+        rows  = ""
+        for idx, item in enumerate(items):
+            parts = str(item).split(":", 1)
+            bg_r  = bg if idx % 2 == 0 else bg2
+            if len(parts) == 2:
+                rows += (
+                    f'<tr>'
+                    f'<td style="font-weight:bold;color:{p};padding:8px 12px;'
+                    f'background:{bg};border:1px solid #ddd;width:36%;">{esc(parts[0].strip())}</td>'
+                    f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};'
+                    f'color:{txt_color};">{esc(parts[1].strip())}</td>'
+                    f'</tr>'
+                )
+            else:
+                rows += f'<tr><td colspan="2" style="padding:8px 12px;border:1px solid #ddd;">{esc(item)}</td></tr>'
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">{rows}</table>'
+            f'</div>'
+        )
 
-    def add_heading(text):
-        h = doc.add_paragraph()
-        if is_rtl:
-            set_rtl(h)
-        if ts["heading_bg"]:
-            add_shading(h, ts["heading_bg"])
-        if template in ("classic", "professional"):
-            border_hex = "3498DB" if template == "classic" else "2C5282"
-            add_border_right(h, border_hex)
-        r = h.add_run(text)
-        r.bold = True
-        r.font.size = Pt(14)
-        r.font.color.rgb = ts["heading_color"]
+    elif bt == "examples":
+        items = b.items or []
+        rows  = ""
+        for idx, item in enumerate(items, 1):
+            bg_r = bg if idx % 2 == 1 else bg2
+            rows += (
+                f'<tr>'
+                f'<td style="width:28px;text-align:center;font-weight:bold;color:#fff;'
+                f'background:{a};padding:8px;border:1px solid #ddd;">{idx}</td>'
+                f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};'
+                f'line-height:1.8;color:{txt_color};">{esc(item)}</td>'
+                f'</tr>'
+            )
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">{rows}</table>'
+            f'</div>'
+        )
 
-    def split_into_sentences(text):
-        text = text.strip()
-        if not text:
-            return []
-        # تقسيم النص إلى جمل بناءً على نقاط النهاية
-        sentences = re.split(r'(?<=[.!?؟])\s+', text)
-        # دمج الجمل في فقرات (كل 3-4 جمل فقرة)
-        chunks = []
-        current = []
-        for s in sentences:
-            s = s.strip()
-            if s:
-                current.append(s)
-                if len(current) >= 3:
-                    chunks.append(' '.join(current))
-                    current = []
-        if current:
-            chunks.append(' '.join(current))
-        return chunks if chunks else [text]
+    elif bt == "pros_cons":
+        pros  = b.pros or []
+        cons  = b.cons or []
+        p_lis = "".join(f'<li style="margin-bottom:6px;font-size:13px;">{esc(x)}</li>' for x in pros)
+        c_lis = "".join(f'<li style="margin-bottom:6px;font-size:13px;">{esc(x)}</li>' for x in cons)
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<table style="width:100%;border-collapse:separate;border-spacing:6px 0;">'
+            f'<tr>'
+            f'<td style="vertical-align:top;padding:14px;background:#f0fff4;'
+            f'border:1px solid #9ae6b4;border-radius:6px;width:50%;">'
+            f'<strong style="color:#276749;display:block;margin-bottom:8px;">{lang["pros_label"]}</strong>'
+            f'<ul style="{p_side}:18px;margin:0;">{p_lis}</ul></td>'
+            f'<td style="vertical-align:top;padding:14px;background:#fff5f5;'
+            f'border:1px solid #feb2b2;border-radius:6px;width:50%;">'
+            f'<strong style="color:#9b2c2c;display:block;margin-bottom:8px;">{lang["cons_label"]}</strong>'
+            f'<ul style="{p_side}:18px;margin:0;">{c_lis}</ul></td>'
+            f'</tr></table></div>'
+        )
 
-    def add_body(text):
-        paragraphs = split_into_sentences(text)
-        for para_text in paragraphs:
-            if para_text.strip():
-                p = doc.add_paragraph()
-                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                if is_rtl:
-                    set_rtl(p)
-                run = p.add_run(para_text.strip())
-                run.font.size = Pt(ts["body_size"])
-                run.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
+    elif bt == "table":
+        headers = b.headers or []
+        rows_data = b.rows or []
+        ths = "".join(
+            f'<th style="background:{p};color:#fff;padding:9px 12px;'
+            f'text-align:{align};font-weight:bold;">{esc(h)}</th>'
+            for h in headers
+        )
+        rows = ""
+        for ridx, row in enumerate(rows_data):
+            bg_r = bg if ridx % 2 == 0 else bg2
+            tds  = "".join(
+                f'<td style="padding:8px 12px;border:1px solid #ddd;'
+                f'background:{bg_r};color:{txt_color};">{esc(c)}</td>'
+                for c in row
+            )
+            rows += f"<tr>{tds}</tr>"
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+            f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table>'
+            f'</div>'
+        )
 
-    # العنوان الرئيسي
-    title_para = doc.add_paragraph()
-    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if is_rtl:
-        set_rtl(title_para)
-    if template in ("classic", "professional"):
-        border_hex = "34495E" if template == "classic" else "2C5282"
-        add_bottom_border(title_para, border_hex)
-    r = title_para.add_run(report.title)
-    r.bold = True
-    r.font.size = Pt(22)
-    r.font.color.rgb = ts["title_color"]
+    elif bt == "comparison":
+        sa  = esc(b.side_a or "A")
+        sb  = esc(b.side_b or "B")
+        cr  = b.criteria or []
+        av  = b.side_a_values or []
+        bv  = b.side_b_values or []
+        ths = (
+            f'<th style="background:{p};color:#fff;padding:9px 12px;">المعيار</th>'
+            f'<th style="background:{p};color:#fff;padding:9px 12px;">{sa}</th>'
+            f'<th style="background:{p};color:#fff;padding:9px 12px;">{sb}</th>'
+        )
+        rows = ""
+        for idx, crit in enumerate(cr):
+            av_val = esc(av[idx]) if idx < len(av) else "-"
+            bv_val = esc(bv[idx]) if idx < len(bv) else "-"
+            bg_r   = bg if idx % 2 == 0 else bg2
+            rows += (
+                f'<tr>'
+                f'<td style="font-weight:bold;color:{p};padding:8px 12px;border:1px solid #ddd;background:{bg};">{esc(crit)}</td>'
+                f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};">{av_val}</td>'
+                f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};">{bv_val}</td>'
+                f'</tr>'
+            )
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+            f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table>'
+            f'</div>'
+        )
 
-    doc.add_paragraph()
+    elif bt == "quote":
+        bd = "border-right" if is_rtl else "border-left"
+        pd = "padding-right" if is_rtl else "padding-left"
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<blockquote style="{bd}:5px solid {a};{pd}:16px;margin:0;'
+            f'color:#555;font-style:italic;line-height:1.9;">'
+            f'{esc(b.text or "")}</blockquote></div>'
+        )
 
-    add_heading(f"📚 {lang_cfg['intro_label']}")
-    add_body(report.introduction)
-    doc.add_paragraph()
-
-    for i, sec in enumerate(report.sections, 1):
-        add_heading(f"{i}. {sec.title}")
-        add_body(sec.content)
-        doc.add_paragraph()
-
-    add_heading(f"🎯 {lang_cfg['conclusion_label']}")
-    add_body(report.conclusion)
-
-    buf = BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-    return buf.read()
+    else:
+        return f'<div style="margin:18px 0;">{h2}{text_to_paras(b.text or "", align)}</div>'
 
 
+def render_html(report: DynamicReport, template_name: str, language_key: str) -> str:
+    tc   = TEMPLATES[template_name]
+    lang = LANGUAGES[language_key]
+    p    = tc["primary"]
+    a    = tc["accent"]
+    bg   = tc["bg"]
+    dir_ = lang["dir"]
+    align= lang["align"]
+    font = lang["font"]
+    is_rtl  = dir_ == "rtl"
+    b_side  = "border-right" if is_rtl else "border-left"
+    is_dark = (template_name == "dark_elegant")
+    page_bg    = "#1a202c" if is_dark else "#ffffff"
+    body_color = "#e2e8f0" if is_dark else "#333333"
+    box_bg     = "#2d3748" if is_dark else bg
+
+    blocks_html = "\n".join(render_block(bl, tc, lang) for bl in report.blocks)
+
+    return f"""<!DOCTYPE html>
+<html lang="{lang['lang_attr']}" dir="{dir_}">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page {{ size: A4; margin: 2.5cm; }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    font-family: {font};
+    direction: {dir_};
+    text-align: {align};
+    line-height: 1.95;
+    color: {body_color};
+    background: {page_bg};
+    font-size: 14px;
+    margin: 0; padding: 0;
+  }}
+</style>
+</head>
+<body>
+
+<h1 style="text-align:center;color:{p};font-size:24px;font-weight:bold;
+           padding-bottom:14px;margin-bottom:28px;
+           border-bottom:3px solid {a};">
+  {esc(report.title)}
+</h1>
+
+<div style="background:{box_bg};padding:18px 22px;border-radius:8px;
+            margin:0 0 20px 0;{b_side}:5px solid {a};">
+  <h2 style="color:{p};font-size:15px;font-weight:bold;margin:0 0 10px 0;">
+    📚 {lang['intro_label']}
+  </h2>
+  {text_to_paras(report.introduction, align)}
+</div>
+
+{blocks_html}
+
+<div style="background:{box_bg};padding:18px 22px;border-radius:8px;
+            margin:20px 0 0 0;{b_side}:5px solid {a};">
+  <h2 style="color:{p};font-size:15px;font-weight:bold;margin:0 0 10px 0;">
+    🎯 {lang['conclusion_label']}
+  </h2>
+  {text_to_paras(report.conclusion, align)}
+</div>
+
+</body>
+</html>"""
+
+
+# ═══════════════════════════════════════════════════
+# KEYBOARD HELPERS
+# ═══════════════════════════════════════════════════
+def lang_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(v["name"], callback_data=f"lang_{k}")]
+        for k, v in LANGUAGES.items()
+    ])
+
+def depth_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(v["name"], callback_data=f"depth_{k}")]
+        for k, v in DEPTH_OPTIONS.items()
+    ])
+
+def template_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(v["name"], callback_data=f"tpl_{k}")]
+        for k, v in TEMPLATES.items()
+    ])
+
+
+# ═══════════════════════════════════════════════════
+# TELEGRAM HANDLERS
+# ═══════════════════════════════════════════════════
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user_name = update.effective_user.first_name
-    welcome = f"""
-🎓 <b>مرحباً {user_name}!</b>
+    name = update.effective_user.first_name
+    msg = f"""
+🎓 <b>مرحباً {name}!</b>
 
-أهلاً بك في <b>بوت التقارير الأكاديمية الاحترافي</b> 📚
+أنا <b>بوت التقارير الجامعية الذكي</b> 🤖
 
-✨ <b>المميزات:</b>
-- 5 أنماط كتابة مختلفة
-- 4 قوالب تصميم احترافية
-- تقارير بالعربية أو الإنجليزية
-- إرسال بصيغة PDF أو Word
+✨ <b>كيف يعمل البوت؟</b>
+1️⃣ أرسل موضوع تقريرك
+2️⃣ اختر اللغة
+3️⃣ أجب على <b>3 أسئلة ذكية</b> مخصصة لموضوعك
+4️⃣ اختر العمق والتصميم
+5️⃣ احصل على تقريرك PDF احترافي 🎉
 
-📝 <b>كيف تبدأ؟</b>
-فقط أرسل لي موضوع التقرير وسأقوم بإنشاء تقرير احترافي
+🧠 <b>ذكاء البوت:</b>
+• يولّد أسئلة مخصصة لكل موضوع
+• يبني الهيكل بناءً على إجاباتك
+• يختار جداول ومقارنات ونقاط تلقائياً
+• موجّه خصيصاً لطلاب الجامعة
 
-💡 <b>أمثلة للمواضيع:</b>
-- الذكاء الاصطناعي وتطبيقاته
-- التغير المناخي والحلول المستدامة
-- الطاقة المتجددة في المستقبل
-- الأمن السيبراني في العصر الرقمي
-
-⏱️ <b>وقت الإنشاء: 30-60 ثانية</b>
-
-🚀 <b>ابدأ الآن بإرسال موضوع تقريرك!</b>
+🚀 <b>أرسل موضوع تقريرك الآن!</b>
 """
-    await update.message.reply_text(welcome, parse_mode='HTML')
-    logger.info(f"✅ User {user_id} ({user_name}) started the bot")
+    await update.message.reply_text(msg, parse_mode='HTML')
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    topic = update.message.text.strip()
     user_id = update.effective_user.id
+    text    = update.message.text.strip()
 
-    if len(topic) < 5:
-        await update.message.reply_text("❌ الموضوع قصير جداً! أرسل موضوعاً أطول من 5 أحرف.")
+    # ── If user is answering a dynamic question ──
+    if user_id in user_sessions:
+        session = user_sessions[user_id]
+        state   = session.get("state")
+
+        if state == "answering":
+            answers   = session.setdefault("answers", [])
+            questions = session.get("dynamic_questions", [])
+            answers.append(text)
+
+            if len(answers) < len(questions):
+                # Next question
+                next_q = questions[len(answers)]
+                q_num  = len(answers) + 1
+                await update.message.reply_text(
+                    f"✅ تم تسجيل إجابتك.\n\n"
+                    f"❓ <b>السؤال {q_num}/{len(questions)}:</b>\n{next_q}",
+                    parse_mode='HTML'
+                )
+            else:
+                # All answered → depth
+                session["state"] = "choosing_depth"
+                await update.message.reply_text(
+                    "✅ <b>ممتاز! تم تسجيل جميع إجاباتك.</b>\n\n📏 <b>اختر عمق التقرير:</b>",
+                    reply_markup=depth_keyboard(),
+                    parse_mode='HTML'
+                )
+            return
+
+    # ── New topic ──
+    if len(text) < 5:
+        await update.message.reply_text("❌ الموضوع قصير جداً. أرسل موضوعاً أوضح.")
         return
-    if len(topic) > 150:
-        await update.message.reply_text("❌ الموضوع طويل جداً! حاول اختصاره لأقل من 150 حرف.")
+    if len(text) > 250:
+        await update.message.reply_text("❌ الموضوع طويل جداً. اختصره لأقل من 250 حرف.")
         return
 
-    user_sessions[user_id] = {"topic": topic}
-    keyboard = [[InlineKeyboardButton(v["name"], callback_data=f"lang_{k}")] for k, v in LANGUAGES.items()]
-    safe_topic = topic.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
+    user_sessions[user_id] = {"topic": text, "state": "choosing_lang"}
+    safe = text.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
 
     await update.message.reply_text(
-        f"📝 <b>تم استلام الموضوع:</b>\n<i>{safe_topic}</i>\n\n🌐 <b>اختر لغة التقرير:</b>",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        f"📝 <b>الموضوع:</b> <i>{safe}</i>\n\n🌐 <b>اختر لغة التقرير:</b>",
+        reply_markup=lang_keyboard(),
         parse_mode='HTML'
     )
 
 
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+    query   = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    language = query.data.replace("lang_", "")
+    lang    = query.data.replace("lang_", "")
 
     if user_id not in user_sessions:
         await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
         return
 
-    user_sessions[user_id]["language"] = language
-    keyboard = [[InlineKeyboardButton(v["name"], callback_data=f"style_{k}")] for k, v in WRITING_STYLES.items()]
+    session          = user_sessions[user_id]
+    session["language"] = lang
+    session["state"] = "generating_questions"
 
     await query.edit_message_text(
-        f"✅ <b>تم اختيار اللغة:</b> {LANGUAGES[language]['name']}\n\n🎨 <b>اختر نمط الكتابة المناسب:</b>",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        f"✅ <b>اللغة:</b> {LANGUAGES[lang]['name']}\n\n"
+        f"⏳ <i>جاري تحليل موضوعك وتوليد الأسئلة المناسبة...</i>",
         parse_mode='HTML'
     )
 
+    try:
+        loop      = asyncio.get_event_loop()
+        topic     = session["topic"]
+        questions = await loop.run_in_executor(
+            None, generate_dynamic_questions, topic, lang
+        )
+        session["dynamic_questions"] = questions
+        session["state"]             = "answering"
 
-async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+        first_q = questions[0]
+        lang_name= LANGUAGES[lang]["name"]
+        await query.edit_message_text(
+            f"🧠 <b>بناءً على موضوعك، لدي {len(questions)} أسئلة لأفهم ما تريده بالضبط:</b>\n\n"
+            f"❓ <b>السؤال 1/{len(questions)}:</b>\n{first_q}\n\n"
+            f"<i>اكتب إجابتك بحرية 👇</i>",
+            parse_mode='HTML'
+        )
+
+    except Exception as e:
+        logger.error(f"Question generation failed: {e}", exc_info=True)
+        # Fallback: ask depth directly without questions
+        session["dynamic_questions"] = []
+        session["answers"]           = []
+        session["state"]             = "choosing_depth"
+        await query.edit_message_text(
+            "⚠️ تعذّر توليد الأسئلة. سنكمل مباشرةً.\n\n📏 <b>اختر عمق التقرير:</b>",
+            reply_markup=depth_keyboard(),
+            parse_mode='HTML'
+        )
+
+
+async def depth_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query   = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    style = query.data.replace("style_", "")
+    depth   = query.data.replace("depth_", "")
 
     if user_id not in user_sessions:
         await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
         return
 
-    user_sessions[user_id]["style"] = style
-    keyboard = [[InlineKeyboardButton(v["name"], callback_data=f"template_{k}")] for k, v in TEMPLATES.items()]
+    user_sessions[user_id]["depth"] = depth
+    user_sessions[user_id]["state"] = "choosing_template"
 
     await query.edit_message_text(
-        f"✅ <b>تم اختيار:</b> {WRITING_STYLES[style]['name']}\n\n🎨 <b>الآن اختر تصميم التقرير:</b>",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        f"✅ <b>العمق:</b> {DEPTH_OPTIONS[depth]['name']}\n\n🎨 <b>اختر تصميم التقرير:</b>",
+        reply_markup=template_keyboard(),
         parse_mode='HTML'
     )
 
 
 async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+    query   = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    template = query.data.replace("template_", "")
-
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
-        return
-
-    user_sessions[user_id]["template"] = template
-    keyboard = [
-        [InlineKeyboardButton("📄 PDF", callback_data="format_pdf")],
-        [InlineKeyboardButton("📝 Word (DOCX)", callback_data="format_docx")],
-    ]
-
-    await query.edit_message_text(
-        f"✅ <b>تم اختيار:</b> {TEMPLATES[template]['name']}\n\n📁 <b>اختر صيغة الملف:</b>",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='HTML'
-    )
-
-
-async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    file_format = query.data.replace("format_", "")
+    tpl     = query.data.replace("tpl_", "")
 
     if user_id not in user_sessions:
         await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
         return
 
     session = user_sessions[user_id]
-    topic = session["topic"]
-    style = session["style"]
-    template = session["template"]
-    language = session.get("language", "ar")
+    session["template"] = tpl
+    session["state"]    = "in_queue"
 
-    template_name = TEMPLATES[template]["name"]
-    style_name = WRITING_STYLES[style]["name"]
-    lang_name = LANGUAGES[language]["name"]
-    format_name = "PDF" if file_format == "pdf" else "Word (DOCX)"
+    topic      = session["topic"]
+    lang       = session.get("language", "ar")
+    depth      = session.get("depth", "medium")
+    lang_name  = LANGUAGES[lang]["name"]
+    depth_name = DEPTH_OPTIONS[depth]["name"]
+    tpl_name   = TEMPLATES[tpl]["name"]
 
-    safe_topic = topic.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
+    # Queue position
+    pos = report_queue.qsize() + 1
+    queue_positions[user_id] = pos
+    safe = topic.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
 
-    await query.edit_message_text(
-        f"⏳ <b>جاري إنشاء التقرير...</b>\n\n📝 الموضوع: <i>{safe_topic}</i>\n🌐 اللغة: {lang_name}\n✍️ النمط: {style_name}\n🎨 القالب: {template_name}\n📁 الصيغة: {format_name}\n\n⏱️ يستغرق 30-60 ثانية...",
+    if pos == 1:
+        status_msg = "🔄 <b>تقريرك قيد الإنشاء الآن...</b>"
+    else:
+        status_msg = f"⏳ <b>أنت في الطابور — الترتيب {pos}</b>\nسيُنشأ تقريرك قريباً..."
+
+    sent = await query.edit_message_text(
+        f"{status_msg}\n\n"
+        f"📝 <b>الموضوع:</b> <i>{safe}</i>\n"
+        f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}",
         parse_mode='HTML'
     )
 
-    try:
-        pdf_bytes, title, report_obj = generate_report(topic, style, template, language)
-
-        if pdf_bytes:
-            safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:30])
-            safe_title = title.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
-
-            caption = f"""
-✅ <b>تم إنشاء التقرير بنجاح!</b>
-
-📄 <b>العنوان:</b> {safe_title}
-🌐 <b>اللغة:</b> {lang_name}
-✍️ <b>النمط:</b> {style_name}
-🎨 <b>القالب:</b> {template_name}
-📁 <b>الصيغة:</b> {format_name}
-
-🔄 <b>لإنشاء تقرير جديد، أرسل موضوعاً آخر!</b>
-"""
-
-            if file_format == "pdf":
-                filename = f"{safe_name}.pdf"
-                file_bytes = pdf_bytes
-            else:
-                file_bytes = build_docx(report_obj, language, template)
-                filename = f"{safe_name}.docx"
-
-            await context.bot.send_document(
-                chat_id=query.message.chat_id,
-                document=BytesIO(file_bytes),
-                filename=filename,
-                caption=caption,
-                parse_mode='HTML'
-            )
-
-            await query.message.delete()
-            logger.info(f"✅ {format_name} sent to user {user_id}")
-            del user_sessions[user_id]
-        else:
-            error_msg = str(title).replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
-            await query.edit_message_text(
-                f"❌ <b>حدث خطأ</b>\n\n{error_msg[:300]}\n\n🔄 حاول مرة أخرى",
-                parse_mode='HTML'
-            )
-
-    except Exception as e:
-        logger.error(f"❌ Error: {e}", exc_info=True)
-        error_text = str(e)[:200].replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
-        await query.edit_message_text(
-            f"❌ <b>خطأ غير متوقع</b>\n\n<code>{error_text}</code>\n\n🔄 حاول مرة أخرى",
-            parse_mode='HTML'
-        )
+    await report_queue.put((user_id, session.copy(), sent.message_id))
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"❌ Update error: {context.error}", exc_info=context.error)
+    logger.error(f"Update error: {context.error}", exc_info=context.error)
     try:
         if update and update.effective_message:
-            await update.effective_message.reply_text("❌ حدث خطأ في معالجة طلبك. حاول مرة أخرى.")
+            await update.effective_message.reply_text("❌ حدث خطأ. حاول مرة أخرى.")
     except:
         pass
+
+
+# ═══════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════
+async def post_init(app):
+    global report_queue
+    report_queue = asyncio.Queue()
+    asyncio.create_task(queue_worker(app))
+    logger.info("✅ Queue worker started")
 
 
 if __name__ == '__main__':
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    logger.info("🌐 Flask server started")
+    logger.info("🌐 Flask started")
 
     token = os.getenv("TELEGRAM_TOKEN")
     if not token:
@@ -647,21 +808,26 @@ if __name__ == '__main__':
         exit(1)
 
     try:
-        application = ApplicationBuilder().token(token).build()
-        application.add_handler(CommandHandler('start', start))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        application.add_handler(CallbackQueryHandler(language_callback, pattern='^lang_'))
-        application.add_handler(CallbackQueryHandler(style_callback, pattern='^style_'))
-        application.add_handler(CallbackQueryHandler(template_callback, pattern='^template_'))
-        application.add_handler(CallbackQueryHandler(format_callback, pattern='^format_'))
-        application.add_error_handler(error_handler)
+        app = (
+            ApplicationBuilder()
+            .token(token)
+            .post_init(post_init)
+            .build()
+        )
 
-        logger.info("🤖 Bot Production Ready!")
+        app.add_handler(CommandHandler('start', start))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        app.add_handler(CallbackQueryHandler(language_callback, pattern=r'^lang_'))
+        app.add_handler(CallbackQueryHandler(depth_callback,    pattern=r'^depth_'))
+        app.add_handler(CallbackQueryHandler(template_callback, pattern=r'^tpl_'))
+        app.add_error_handler(error_handler)
+
+        logger.info("🤖 Smart University Reports Bot v4.0 Ready!")
         print("=" * 60)
-        print("✅ Academic Reports Bot - Production Version 2.0")
+        print("✅ Smart University Reports Bot — v4.0")
         print("=" * 60)
 
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
 
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
