@@ -229,8 +229,14 @@ DEPTH_OPTIONS = {
     "detailed": {"name": "📚 مفصل (5 أقسام)",   "blocks": 5, "words": "250-320"},
 }
 
-# الحالات التي يجب فيها عدم التعامل مع الرسائل كموضوع جديد
-ACTIVE_STATES = {"generating_questions", "choosing_depth", "choosing_template", "in_queue"}
+# رسائل التوجيه لكل حالة عندما يرسل المستخدم نصاً بدل استخدام الأزرار
+STATE_GUIDANCE = {
+    "choosing_lang":        "🌐 من فضلك <b>اختر اللغة</b> من الأزرار أعلاه.",
+    "generating_questions": "⏳ جاري تحليل موضوعك وتوليد الأسئلة... انتظر قليلاً.",
+    "choosing_depth":       "📏 من فضلك <b>اختر عمق التقرير</b> من الأزرار أعلاه.",
+    "choosing_template":    "🎨 من فضلك <b>اختر تصميم التقرير</b> من الأزرار أعلاه.",
+    "in_queue":             "⏳ تقريرك في الطابور، انتظر حتى يكتمل.\nأرسل /cancel لإلغاء الطلب.",
+}
 
 
 # ═══════════════════════════════════════════════════
@@ -242,7 +248,7 @@ def get_llm():
         raise Exception("GOOGLE_API_KEY not set")
     return ChatGoogleGenerativeAI(
         # ✅ FIX 1: اسم النموذج الصحيح
-        model="gemini-2.5-flash",
+        model="gemini-1.5-flash",
         temperature=0.5,
         google_api_key=api_key,
         max_retries=3
@@ -611,9 +617,25 @@ def template_keyboard():
 # ═══════════════════════════════════════════════════
 # TELEGRAM HANDLERS
 # ═══════════════════════════════════════════════════
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id in user_sessions:
+        user_sessions.pop(user_id, None)
+        queue_positions.pop(user_id, None)
+        await update.message.reply_text(
+            "❌ <b>تم إلغاء الجلسة الحالية.</b>\n\n🚀 أرسل موضوعاً جديداً لبدء تقرير جديد.",
+            parse_mode='HTML'
+        )
+    else:
+        await update.message.reply_text(
+            "ℹ️ لا توجد جلسة نشطة.\n\n🚀 أرسل موضوعاً لبدء تقرير جديد.",
+            parse_mode='HTML'
+        )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # ✅ نمسح الجلسة القديمة عند /start
+    # نمسح الجلسة القديمة عند /start
     user_sessions.pop(user_id, None)
 
     name = update.effective_user.first_name
@@ -644,51 +666,53 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text    = update.message.text.strip()
 
-    # ── إذا كان المستخدم في جلسة نشطة ──
+    # ══════════════════════════════════════════════════════════
+    # القاعدة الذهبية: إذا كان المستخدم في جلسة نشطة بأي حالة،
+    # لا نُنشئ جلسة جديدة أبداً — نُعالج بناءً على الحالة فقط
+    # ══════════════════════════════════════════════════════════
     if user_id in user_sessions:
         session = user_sessions[user_id]
-        state   = session.get("state")
+        state   = session.get("state", "")
 
-        # ✅ FIX 3: استقبال الإجابات في حالة "answering"
+        # حالة استقبال الإجابات
         if state == "answering":
             answers   = session.setdefault("answers", [])
             questions = session.get("dynamic_questions", [])
             answers.append(text)
 
             if len(answers) < len(questions):
-                # السؤال التالي
+                # عرض السؤال التالي
                 next_q = questions[len(answers)]
                 q_num  = len(answers) + 1
+                total  = len(questions)
                 await update.message.reply_text(
                     f"✅ تم تسجيل إجابتك.\n\n"
-                    f"❓ <b>السؤال {q_num}/{len(questions)}:</b>\n{next_q}",
+                    f"❓ <b>السؤال {q_num}/{total}:</b>\n{next_q}\n\n"
+                    f"<i>اكتب إجابتك 👇</i>",
                     parse_mode='HTML'
                 )
             else:
-                # انتهت الأسئلة → اختر العمق
+                # انتهت كل الأسئلة → الانتقال لاختيار العمق
                 session["state"] = "choosing_depth"
                 await update.message.reply_text(
-                    "✅ <b>ممتاز! تم تسجيل جميع إجاباتك.</b>\n\n📏 <b>اختر عمق التقرير:</b>",
+                    "✅ <b>ممتاز! تم تسجيل جميع إجاباتك.</b>\n\n"
+                    "📏 <b>اختر عمق التقرير:</b>",
                     reply_markup=depth_keyboard(),
                     parse_mode='HTML'
                 )
-            return
+            return  # ← دائماً نرجع هنا، لا نكمل للأسفل
 
-        # ✅ FIX 4: منع التعامل مع أي رسالة كموضوع جديد في الحالات النشطة
-        if state in ACTIVE_STATES:
-            state_msgs = {
-                "generating_questions": "⏳ جاري تحليل موضوعك... انتظر قليلاً.",
-                "choosing_depth":       "📏 من فضلك اختر <b>عمق التقرير</b> من الأزرار أعلاه.",
-                "choosing_template":    "🎨 من فضلك اختر <b>تصميم التقرير</b> من الأزرار أعلاه.",
-                "in_queue":             "⏳ تقريرك في الطابور. انتظر حتى يكتمل أو أرسل /start لإلغائه.",
-            }
-            await update.message.reply_text(
-                state_msgs.get(state, "⏳ جاري العمل على طلبك... انتظر."),
-                parse_mode='HTML'
-            )
-            return
+        # أي حالة أخرى (يجب على المستخدم استخدام الأزرار)
+        guidance = STATE_GUIDANCE.get(
+            state,
+            "⏳ جاري معالجة طلبك... انتظر أو أرسل /cancel للبدء من جديد."
+        )
+        await update.message.reply_text(guidance, parse_mode='HTML')
+        return  # ← لا نكمل للأسفل أبداً طالما توجد جلسة
 
-    # ── موضوع جديد ──
+    # ══════════════════════════════════════════════════════════
+    # لا يوجد جلسة → موضوع جديد
+    # ══════════════════════════════════════════════════════════
     if len(text) < 5:
         await update.message.reply_text("❌ الموضوع قصير جداً. أرسل موضوعاً أوضح.")
         return
@@ -877,6 +901,7 @@ if __name__ == '__main__':
         )
 
         app.add_handler(CommandHandler('start', start))
+        app.add_handler(CommandHandler('cancel', cancel))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         app.add_handler(CallbackQueryHandler(language_callback, pattern=r'^lang_'))
         app.add_handler(CallbackQueryHandler(depth_callback,    pattern=r'^depth_'))
