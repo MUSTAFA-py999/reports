@@ -175,19 +175,13 @@ LANGUAGES = {
         "cons_label": "❌ العيوب",
         "instruction": "Write ALL content in formal Arabic (فصحى). Every word must be Arabic.",
         "q_prompt": (
-            "أنت مساعد أكاديمي ذكي متخصص في مساعدة طلاب الجامعة.\n"
-            "الطالب يريد كتابة تقرير جامعي عن: \"{topic}\".\n\n"
-            "اكتب أسئلة مفتوحة بالعربية (مع استخدام المصطلحات الإنجليزية التقنية عند الضرورة) "
-            "لتفهم ما يريده الطالب بالضبط في تقريره.\n"
-            "حدد عدد الأسئلة بنفسك (من 2 إلى 5) بناءً على مدى تعقيد الموضوع وحاجته للتوضيح:\n"
-            "- الموضوعات البسيطة والواضحة: 2 أسئلة\n"
-            "- الموضوعات المتوسطة: 3 أسئلة\n"
-            "- الموضوعات المعقدة أو متعددة الجوانب: 4-5 أسئلة\n\n"
-            "اجعل الأسئلة محددة وذات صلة مباشرة بالموضوع، وتساعد على بناء هيكل التقرير.\n"
-            "أمثلة على أسئلة جيدة:\n"
-            "- ما الجانب الذي تريد التركيز عليه أكثر؟\n"
-            "- هل تريد مقارنة بين approaches معينة؟ وضّح.\n"
-            "- ما الـ use cases أو التطبيقات العملية التي تريد تغطيتها؟\n"
+            "أنت مساعد أكاديمي لطلاب الجامعة.\n"
+            "الطالب يريد تقريراً عن: \"{topic}\".\n\n"
+            "اكتب بالعربية 2-4 أسئلة قصيرة ومباشرة لتحديد ما يريده الطالب في تقريره.\n"
+            "قواعد الأسئلة:\n"
+            "- قصيرة (جملة واحدة فقط لكل سؤال)\n"
+            "- مباشرة ومحددة\n"
+            "- موضوعات بسيطة: 2 أسئلة — معقدة: 3-4 أسئلة\n"
         ),
         "answer_prompt": "اكتب التقرير باللغة العربية الفصحى بالكامل. كل كلمة يجب أن تكون عربية.",
     },
@@ -200,16 +194,15 @@ LANGUAGES = {
         "pros_label": "✅ Pros",
         "cons_label": "❌ Cons",
         "instruction": "Write ALL content in English. Every word must be English.",
+        # ✅ الأسئلة دائماً بالعربية حتى للتقارير الإنجليزية
         "q_prompt": (
-            "You are a smart academic assistant helping university students.\n"
-            "The student wants to write a university report about: \"{topic}\".\n\n"
-            "Write open-ended questions in English to understand what the student "
-            "specifically wants in their report.\n"
-            "Decide the number of questions yourself (2 to 5) based on topic complexity:\n"
-            "- Simple/clear topics: 2 questions\n"
-            "- Moderate topics: 3 questions\n"
-            "- Complex/multi-faceted topics: 4-5 questions\n\n"
-            "Make questions specific and directly useful for structuring the report.\n"
+            "أنت مساعد أكاديمي لطلاب الجامعة.\n"
+            "الطالب يريد تقريراً إنجليزياً عن: \"{topic}\".\n\n"
+            "اكتب بالعربية 2-4 أسئلة قصيرة ومباشرة لتحديد ما يريده الطالب في تقريره.\n"
+            "قواعد الأسئلة:\n"
+            "- قصيرة (جملة واحدة فقط لكل سؤال)\n"
+            "- مباشرة ومحددة\n"
+            "- موضوعات بسيطة: 2 أسئلة — معقدة: 3-4 أسئلة\n"
         ),
         "answer_prompt": "Write the entire report in English. Every word must be English.",
     },
@@ -541,6 +534,10 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
     body_color = "#e2e8f0" if is_dark else "#333333"
     box_bg     = "#2d3748" if is_dark else bg
 
+    # ✅ القالب الداكن: هوامش صفرية على الصفحة + padding داخلي على الـ body
+    page_margin  = "0"        if is_dark else "2.5cm"
+    body_padding = "2.5cm"    if is_dark else "0"
+
     blocks_html = "\n".join(render_block(bl, tc, lang) for bl in report.blocks)
 
     return f"""<!DOCTYPE html>
@@ -548,7 +545,7 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
 <head>
 <meta charset="UTF-8">
 <style>
-  @page {{ size: A4; margin: 2.5cm; }}
+  @page {{ size: A4; margin: {page_margin}; background: {page_bg}; }}
   * {{ box-sizing: border-box; }}
   body {{
     font-family: {font};
@@ -558,7 +555,7 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
     color: {body_color};
     background: {page_bg};
     font-size: 14px;
-    margin: 0; padding: 0;
+    margin: 0; padding: {body_padding};
   }}
 </style>
 </head>
@@ -767,10 +764,15 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_q   = len(questions)
         q_word    = "سؤال" if total_q == 1 else "أسئلة"
 
+        hint = (
+            "\n\n💡 <i>تلميح: يمكنك طلب جداول، قوائم مزايا/عيوب، "
+            "أو نقاط فرعية داخل الأقسام الكبيرة في إجاباتك.</i>"
+        )
+
         await query.edit_message_text(
-            f"🧠 <b>بناءً على موضوعك، لدي {total_q} {q_word} لأفهم ما تريده بالضبط:</b>\n\n"
+            f"🧠 <b>لدي {total_q} {q_word} قبل إنشاء تقريرك:</b>{hint}\n\n"
             f"❓ <b>السؤال 1/{total_q}:</b>\n{first_q}\n\n"
-            f"<i>اكتب إجابتك بحرية 👇</i>",
+            f"<i>اكتب إجابتك 👇</i>",
             parse_mode='HTML'
         )
 
@@ -918,4 +920,3 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
-
