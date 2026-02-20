@@ -42,9 +42,9 @@ def run_flask():
 # QUEUE SYSTEM
 # ═══════════════════════════════════════════════════
 report_queue: asyncio.Queue = None
-active_jobs = {}          # user_id → True  (currently generating)
-queue_positions = {}      # user_id → position in queue
-MAX_CONCURRENT = 2        # عدد التقارير التي تُعالج في نفس الوقت
+active_jobs = {}          
+queue_positions = {}      
+MAX_CONCURRENT = 2        
 
 
 async def queue_worker(app):
@@ -53,7 +53,6 @@ async def queue_worker(app):
     async def process_one(user_id, session, msg_id):
         async with semaphore:
             active_jobs[user_id] = True
-            # Update queue positions for waiting users
             for uid in list(queue_positions.keys()):
                 if queue_positions[uid] > 0:
                     queue_positions[uid] -= 1
@@ -244,6 +243,13 @@ def get_llm():
         max_retries=3
     )
 
+def extract_text(content) -> str:
+    """يستخرج النص بصيغة نصية سواء كان الرد من النموذج نصاً أو قائمة قواميس"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(part.get("text", "") for part in content if isinstance(part, dict) and "text" in part)
+    return str(content)
 
 def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
     lang   = LANGUAGES[language_key]
@@ -255,7 +261,8 @@ def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
         + parser.get_format_instructions()
     )
     result = llm.invoke([HumanMessage(content=prompt)])
-    parsed = parser.parse(result.content)
+    content_str = extract_text(result.content) # ← التعديل هنا
+    parsed = parser.parse(content_str)         # ← التعديل هنا
     return parsed.questions[:3]
 
 
@@ -323,7 +330,8 @@ def generate_report(session: dict):
         for attempt in range(3):
             try:
                 result = llm.invoke([HumanMessage(content=prompt)])
-                report = parser.parse(result.content)
+                content_str = extract_text(result.content) # ← التعديل هنا
+                report = parser.parse(content_str)         # ← التعديل هنا
                 break
             except Exception as e:
                 if attempt == 2:
@@ -635,7 +643,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text    = update.message.text.strip()
 
-    # ── If user is answering a dynamic question ──
     if user_id in user_sessions:
         session = user_sessions[user_id]
         state   = session.get("state")
@@ -646,7 +653,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             answers.append(text)
 
             if len(answers) < len(questions):
-                # Next question
                 next_q = questions[len(answers)]
                 q_num  = len(answers) + 1
                 await update.message.reply_text(
@@ -655,7 +661,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode='HTML'
                 )
             else:
-                # All answered → depth
                 session["state"] = "choosing_depth"
                 await update.message.reply_text(
                     "✅ <b>ممتاز! تم تسجيل جميع إجاباتك.</b>\n\n📏 <b>اختر عمق التقرير:</b>",
@@ -664,7 +669,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             return
 
-    # ── New topic ──
     if len(text) < 5:
         await update.message.reply_text("❌ الموضوع قصير جداً. أرسل موضوعاً أوضح.")
         return
@@ -712,7 +716,6 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session["state"]             = "answering"
 
         first_q = questions[0]
-        lang_name= LANGUAGES[lang]["name"]
         await query.edit_message_text(
             f"🧠 <b>بناءً على موضوعك، لدي {len(questions)} {'سؤال' if len(questions) == 1 else 'أسئلة'} لأفهم ما تريده بالضبط:</b>\n\n"
             f"❓ <b>السؤال 1/{len(questions)}:</b>\n{first_q}\n\n"
@@ -722,7 +725,6 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Question generation failed: {e}", exc_info=True)
-        # Fallback: ask depth directly without questions
         session["dynamic_questions"] = []
         session["answers"]           = []
         session["state"]             = "choosing_depth"
@@ -774,7 +776,6 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     depth_name = DEPTH_OPTIONS[depth]["name"]
     tpl_name   = TEMPLATES[tpl]["name"]
 
-    # Queue position
     pos = report_queue.qsize() + 1
     queue_positions[user_id] = pos
     safe = topic.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
