@@ -10,6 +10,7 @@ from telegram.ext import (
     MessageHandler, CallbackQueryHandler, filters
 )
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -36,13 +37,15 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
+
 # ═══════════════════════════════════════════════════
 # QUEUE SYSTEM
 # ═══════════════════════════════════════════════════
 report_queue: asyncio.Queue = None
-active_jobs = {}
-queue_positions = {}
-MAX_CONCURRENT = 2
+active_jobs = {}          # user_id → True  (currently generating)
+queue_positions = {}      # user_id → position in queue
+MAX_CONCURRENT = 2        # عدد التقارير التي تُعالج في نفس الوقت
+
 
 async def queue_worker(app):
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
@@ -50,6 +53,7 @@ async def queue_worker(app):
     async def process_one(user_id, session, msg_id):
         async with semaphore:
             active_jobs[user_id] = True
+            # Update queue positions for waiting users
             for uid in list(queue_positions.keys()):
                 if queue_positions[uid] > 0:
                     queue_positions[uid] -= 1
@@ -60,12 +64,12 @@ async def queue_worker(app):
                     None, generate_report, session
                 )
 
-                lang     = session.get("language", "ar")
-                lang_name= LANGUAGES[lang]["name"]
-                depth    = session.get("depth", "medium")
+                lang      = session.get("language", "ar")
+                lang_name = LANGUAGES[lang]["name"]
+                depth     = session.get("depth", "medium")
                 depth_name = DEPTH_OPTIONS[depth]["name"]
-                tpl      = session.get("template", "classic")
-                tpl_name = TEMPLATES[tpl]["name"]
+                tpl       = session.get("template", "classic")
+                tpl_name  = TEMPLATES[tpl]["name"]
 
                 if pdf_bytes:
                     safe_name  = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:40])
@@ -85,8 +89,9 @@ async def queue_worker(app):
                     )
                     try:
                         await app.bot.delete_message(chat_id=user_id, message_id=msg_id)
-                    except:
+                    except Exception:
                         pass
+                    logger.info(f"✅ Report sent to {user_id}")
                 else:
                     err = str(title).replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
                     await app.bot.send_message(
@@ -113,34 +118,46 @@ async def queue_worker(app):
         asyncio.create_task(process_one(user_id, session, msg_id))
         report_queue.task_done()
 
+
 # ═══════════════════════════════════════════════════
 # PYDANTIC MODELS
 # ═══════════════════════════════════════════════════
 class SmartQuestions(BaseModel):
     questions: List[str] = Field(
-        description="List of 2-5 open-ended questions to clarify the topic requirements."
+        description=(
+            "List of open-ended questions (between 2 and 5, based on topic complexity) "
+            "to ask the student about their report. Decide the number based on how much "
+            "clarification the topic needs."
+        )
     )
 
 class ReportBlock(BaseModel):
-    block_type: str = Field(description="'paragraph', 'bullets', 'numbered_list', 'table', 'pros_cons', 'comparison', 'stats', 'examples', 'quote'")
+    block_type: str = Field(
+        description=(
+            "Block type — must be ONE of: "
+            "'paragraph', 'bullets', 'numbered_list', 'table', "
+            "'pros_cons', 'comparison', 'stats', 'examples', 'quote'"
+        )
+    )
     title: str = Field(description="Section heading")
-    text: Optional[str] = None
-    items: Optional[List[str]] = None
-    pros: Optional[List[str]] = None
-    cons: Optional[List[str]] = None
-    headers: Optional[List[str]] = None
-    rows: Optional[List[List[str]]] = None
-    side_a: Optional[str] = None
-    side_b: Optional[str] = None
-    criteria: Optional[List[str]] = None
-    side_a_values: Optional[List[str]] = None
-    side_b_values: Optional[List[str]] = None
+    text: Optional[str] = Field(default=None)
+    items: Optional[List[str]] = Field(default=None)
+    pros: Optional[List[str]] = Field(default=None)
+    cons: Optional[List[str]] = Field(default=None)
+    headers: Optional[List[str]] = Field(default=None)
+    rows: Optional[List[List[str]]] = Field(default=None)
+    side_a: Optional[str] = Field(default=None)
+    side_b: Optional[str] = Field(default=None)
+    criteria: Optional[List[str]] = Field(default=None)
+    side_a_values: Optional[List[str]] = Field(default=None)
+    side_b_values: Optional[List[str]] = Field(default=None)
 
 class DynamicReport(BaseModel):
-    title: str
-    introduction: str
-    blocks: List[ReportBlock]
-    conclusion: str
+    title: str = Field(description="Report title")
+    introduction: str = Field(description="Introduction paragraph (120-180 words)")
+    blocks: List[ReportBlock] = Field(description="Content blocks")
+    conclusion: str = Field(description="Conclusion paragraph (100-140 words). MANDATORY.")
+
 
 # ═══════════════════════════════════════════════════
 # CONFIG
@@ -149,20 +166,52 @@ user_sessions = {}
 
 LANGUAGES = {
     "ar": {
-        "name": "🇸🇦 العربية", "dir": "rtl", "align": "right", "lang_attr": "ar",
+        "name": "🇸🇦 العربية",
+        "dir": "rtl", "align": "right", "lang_attr": "ar",
         "font": "'Traditional Arabic', 'Arial', sans-serif",
-        "intro_label": "المقدمة", "conclusion_label": "الخاتمة",
-        "pros_label": "✅ المزايا", "cons_label": "❌ العيوب",
+        "intro_label": "المقدمة",
+        "conclusion_label": "الخاتمة",
+        "pros_label": "✅ المزايا",
+        "cons_label": "❌ العيوب",
         "instruction": "Write ALL content in formal Arabic (فصحى). Every word must be Arabic.",
-        "q_prompt": "أنت مساعد أكاديمي. الطالب يكتب تقريراً عن: \"{topic}\". اكتب 2-5 أسئلة مفتوحة بالعربية لتفهم ما يريده بالتحديد."
+        "q_prompt": (
+            "أنت مساعد أكاديمي ذكي متخصص في مساعدة طلاب الجامعة.\n"
+            "الطالب يريد كتابة تقرير جامعي عن: \"{topic}\".\n\n"
+            "اكتب أسئلة مفتوحة بالعربية (مع استخدام المصطلحات الإنجليزية التقنية عند الضرورة) "
+            "لتفهم ما يريده الطالب بالضبط في تقريره.\n"
+            "حدد عدد الأسئلة بنفسك (من 2 إلى 5) بناءً على مدى تعقيد الموضوع وحاجته للتوضيح:\n"
+            "- الموضوعات البسيطة والواضحة: 2 أسئلة\n"
+            "- الموضوعات المتوسطة: 3 أسئلة\n"
+            "- الموضوعات المعقدة أو متعددة الجوانب: 4-5 أسئلة\n\n"
+            "اجعل الأسئلة محددة وذات صلة مباشرة بالموضوع، وتساعد على بناء هيكل التقرير.\n"
+            "أمثلة على أسئلة جيدة:\n"
+            "- ما الجانب الذي تريد التركيز عليه أكثر؟\n"
+            "- هل تريد مقارنة بين approaches معينة؟ وضّح.\n"
+            "- ما الـ use cases أو التطبيقات العملية التي تريد تغطيتها؟\n"
+        ),
+        "answer_prompt": "اكتب التقرير باللغة العربية الفصحى بالكامل. كل كلمة يجب أن تكون عربية.",
     },
     "en": {
-        "name": "🇬🇧 English", "dir": "ltr", "align": "left", "lang_attr": "en",
+        "name": "🇬🇧 English",
+        "dir": "ltr", "align": "left", "lang_attr": "en",
         "font": "'Arial', 'Helvetica', sans-serif",
-        "intro_label": "Introduction", "conclusion_label": "Conclusion",
-        "pros_label": "✅ Pros", "cons_label": "❌ Cons",
+        "intro_label": "Introduction",
+        "conclusion_label": "Conclusion",
+        "pros_label": "✅ Pros",
+        "cons_label": "❌ Cons",
         "instruction": "Write ALL content in English. Every word must be English.",
-        "q_prompt": "You are an academic assistant. Topic: \"{topic}\". Write 2-5 open questions in English to clarify requirements."
+        "q_prompt": (
+            "You are a smart academic assistant helping university students.\n"
+            "The student wants to write a university report about: \"{topic}\".\n\n"
+            "Write open-ended questions in English to understand what the student "
+            "specifically wants in their report.\n"
+            "Decide the number of questions yourself (2 to 5) based on topic complexity:\n"
+            "- Simple/clear topics: 2 questions\n"
+            "- Moderate topics: 3 questions\n"
+            "- Complex/multi-faceted topics: 4-5 questions\n\n"
+            "Make questions specific and directly useful for structuring the report.\n"
+        ),
+        "answer_prompt": "Write the entire report in English. Every word must be English.",
     },
 }
 
@@ -180,6 +229,10 @@ DEPTH_OPTIONS = {
     "detailed": {"name": "📚 مفصل (5 أقسام)",   "blocks": 5, "words": "250-320"},
 }
 
+# الحالات التي يجب فيها عدم التعامل مع الرسائل كموضوع جديد
+ACTIVE_STATES = {"generating_questions", "choosing_depth", "choosing_template", "in_queue"}
+
+
 # ═══════════════════════════════════════════════════
 # LLM HELPERS
 # ═══════════════════════════════════════════════════
@@ -188,45 +241,98 @@ def get_llm():
     if not api_key:
         raise Exception("GOOGLE_API_KEY not set")
     return ChatGoogleGenerativeAI(
+        # ✅ FIX 1: اسم النموذج الصحيح
         model="gemini-2.5-flash",
         temperature=0.5,
         google_api_key=api_key,
         max_retries=3
     )
 
+
 def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
-    lang = LANGUAGES[language_key]
-    llm = get_llm().with_structured_output(SmartQuestions)
-    prompt = lang["q_prompt"].format(topic=topic)
+    lang   = LANGUAGES[language_key]
+    llm    = get_llm()
+    parser = PydanticOutputParser(pydantic_object=SmartQuestions)
+    prompt = (
+        lang["q_prompt"].format(topic=topic)
+        + "\n\n"
+        + parser.get_format_instructions()
+    )
     result = llm.invoke([HumanMessage(content=prompt)])
-    return result.questions[:3]
+    parsed = parser.parse(result.content)
+    # ✅ FIX 2: لا نقيّد الأسئلة بـ 3، بل نحترم ما يقرره النموذج (2-5)
+    return parsed.questions[:5]
 
-def build_report_prompt(session: dict) -> str:
+
+def build_report_prompt(session: dict, format_instructions: str) -> str:
     topic    = session["topic"]
-    lang     = LANGUAGES[session.get("language", "ar")]
-    depth    = DEPTH_OPTIONS[session.get("depth", "medium")]
-    qa_block = "".join(f"Q{i}: {q}\nA{i}: {a}\n\n" for i, (q, a) in enumerate(zip(session.get("dynamic_questions", []), session.get("answers", [])), 1))
+    lang_key = session.get("language", "ar")
+    depth    = session.get("depth", "medium")
+    lang     = LANGUAGES[lang_key]
+    d        = DEPTH_OPTIONS[depth]
+    questions = session.get("dynamic_questions", [])
+    answers   = session.get("answers", [])
 
-    return f"""You are an expert academic writer.
+    qa_block = ""
+    for i, (q, a) in enumerate(zip(questions, answers), 1):
+        qa_block += f"Q{i}: {q}\nA{i}: {a}\n\n"
+
+    return f"""You are an expert academic writer specializing in university-level reports.
+
+══════════════════════════════════════
+TARGET AUDIENCE: University students (undergraduate/graduate)
 TOPIC: {topic}
 LANGUAGE: {lang["instruction"]}
-DEPTH: Exactly {depth["blocks"]} content blocks. Each block: {depth["words"]} words.
-STUDENT REQUIREMENTS:
+DEPTH: Exactly {d["blocks"]} content blocks. Each block: {d["words"]} words.
+══════════════════════════════════════
+
+STUDENT'S REQUIREMENTS (from their answers):
 {qa_block.strip()}
-RULES: Choose optimal block types. Conclusion is MANDATORY. Output in {lang["instruction"]}."""
+
+══════════════════════════════════════
+BLOCK TYPES AVAILABLE:
+- "paragraph"     → fill "text" with continuous paragraph text
+- "bullets"       → fill "items" with 4-7 bullet point strings
+- "numbered_list" → fill "items" with 4-7 numbered step strings
+- "table"         → fill "headers" (list) + "rows" (list of lists, 4-6 rows)
+- "pros_cons"     → fill "pros" list (4-6) + "cons" list (4-6)
+- "comparison"    → fill "side_a", "side_b", "criteria", "side_a_values", "side_b_values" (all same length 5-7)
+- "stats"         → fill "items" as "Label: value — explanation" (4-6 items)
+- "examples"      → fill "items" with 4-6 concrete real-world example strings
+- "quote"         → fill "text" with a relevant quote or key definition
+
+══════════════════════════════════════
+INTELLIGENCE RULES:
+1. Analyze student answers deeply — their requirements define the structure
+2. Choose block types that BEST serve the content:
+   • Comparisons → use "comparison" or "pros_cons"
+   • Steps/methods → use "numbered_list"
+   • Data/numbers → use "stats" or "table"
+   • Concepts → use "paragraph"
+   • Lists of points → use "bullets"
+3. Make the report genuinely useful for a university assignment
+4. Use academic language appropriate for university level
+5. "conclusion" is MANDATORY — never omit it
+6. ALL text must be in the specified language — zero code-switching
+
+{format_instructions}"""
+
 
 def generate_report(session: dict):
     try:
-        llm = get_llm().with_structured_output(DynamicReport)
-        prompt = build_report_prompt(session)
-        
+        llm    = get_llm()
+        parser = PydanticOutputParser(pydantic_object=DynamicReport)
+        prompt = build_report_prompt(session, parser.get_format_instructions())
+
         report = None
         for attempt in range(3):
             try:
-                report = llm.invoke([HumanMessage(content=prompt)])
-                if report: break
+                result = llm.invoke([HumanMessage(content=prompt)])
+                report = parser.parse(result.content)
+                break
             except Exception as e:
-                if attempt == 2: raise e
+                if attempt == 2:
+                    raise e
                 logger.warning(f"Parse attempt {attempt+1} failed: {e}")
 
         html_str  = render_html(report, session.get("template", "classic"), session.get("language", "ar"))
@@ -237,165 +343,510 @@ def generate_report(session: dict):
         logger.error(f"❌ generate_report: {e}", exc_info=True)
         return None, str(e)
 
+
 # ═══════════════════════════════════════════════════
 # HTML RENDERER
 # ═══════════════════════════════════════════════════
-def esc(v): return html_lib.escape(str(v)) if v is not None else ""
+def esc(v):
+    return html_lib.escape(str(v)) if v is not None else ""
 
 def text_to_paras(text: str, align: str) -> str:
-    lines = [l.strip() for l in str(text).split('\n') if l.strip()] or [str(text)]
-    return "".join(f'<p style="text-align:{align};margin:0 0 10px 0;line-height:1.95;">{esc(l)}</p>' for l in lines)
+    lines = [l.strip() for l in str(text).split('\n') if l.strip()]
+    if not lines:
+        lines = [str(text)]
+    return "".join(
+        f'<p style="text-align:{align};margin:0 0 10px 0;line-height:1.95;">{esc(l)}</p>'
+        for l in lines
+    )
 
 def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
-    p, a, bg, bg2, align = tc["primary"], tc["accent"], tc["bg"], tc["bg2"], lang["align"]
+    p   = tc["primary"]
+    a   = tc["accent"]
+    bg  = tc["bg"]
+    bg2 = tc["bg2"]
+    align  = lang["align"]
     is_rtl = lang["dir"] == "rtl"
     b_side = "border-right" if is_rtl else "border-left"
     p_side = "padding-right" if is_rtl else "padding-left"
-    txt_color, h2_bg = ("#e2e8f0", "#3d4a5c") if p == "#d4af37" else ("#333333", bg)
+    is_dark   = tc["primary"] == "#d4af37"
+    txt_color = "#e2e8f0" if is_dark else "#333333"
+    h2_bg     = "#3d4a5c" if is_dark else bg
 
-    h2 = f'<h2 style="color:{p};font-size:15px;font-weight:bold;padding:10px 16px;background:{h2_bg};{b_side}:5px solid {a};margin:0 0 13px 0;">{esc(b.title)}</h2>'
+    h2 = (
+        f'<h2 style="color:{p};font-size:15px;font-weight:bold;'
+        f'padding:10px 16px;background:{h2_bg};'
+        f'{b_side}:5px solid {a};margin:0 0 13px 0;color:{p};">'
+        f'{esc(b.title)}</h2>'
+    )
     bt = (b.block_type or "paragraph").strip().lower()
 
-    if bt in ("bullets", "numbered_list"):
-        tag = "ol" if bt == "numbered_list" else "ul"
-        lis = "".join(f'<li style="margin-bottom:7px;line-height:1.8;color:{txt_color};">{esc(i)}</li>' for i in (b.items or []))
+    if bt == "paragraph":
+        return f'<div style="margin:18px 0;">{h2}{text_to_paras(b.text or "", align)}</div>'
+
+    elif bt in ("bullets", "numbered_list"):
+        items = b.items or []
+        tag   = "ol" if bt == "numbered_list" else "ul"
+        lis   = "".join(f'<li style="margin-bottom:7px;line-height:1.8;color:{txt_color};">{esc(i)}</li>' for i in items)
         return f'<div style="margin:18px 0;">{h2}<{tag} style="{p_side}:22px;margin:0;">{lis}</{tag}></div>'
+
     elif bt == "stats":
-        rows = "".join(f'<tr><td style="font-weight:bold;color:{p};padding:8px;background:{bg};border:1px solid #ddd;">{esc(str(i).split(":",1)[0])}</td><td style="padding:8px;border:1px solid #ddd;color:{txt_color};">{esc(str(i).split(":",1)[1] if ":" in str(i) else "")}</td></tr>' for i in (b.items or []))
-        return f'<div style="margin:18px 0;">{h2}<table style="width:100%;border-collapse:collapse;font-size:13px;">{rows}</table></div>'
+        items = b.items or []
+        rows  = ""
+        for idx, item in enumerate(items):
+            parts = str(item).split(":", 1)
+            bg_r  = bg if idx % 2 == 0 else bg2
+            if len(parts) == 2:
+                rows += (
+                    f'<tr>'
+                    f'<td style="font-weight:bold;color:{p};padding:8px 12px;'
+                    f'background:{bg};border:1px solid #ddd;width:36%;">{esc(parts[0].strip())}</td>'
+                    f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};'
+                    f'color:{txt_color};">{esc(parts[1].strip())}</td>'
+                    f'</tr>'
+                )
+            else:
+                rows += f'<tr><td colspan="2" style="padding:8px 12px;border:1px solid #ddd;">{esc(item)}</td></tr>'
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">{rows}</table>'
+            f'</div>'
+        )
+
     elif bt == "examples":
-        rows = "".join(f'<tr><td style="width:28px;text-align:center;font-weight:bold;color:#fff;background:{a};padding:8px;border:1px solid #ddd;">{idx}</td><td style="padding:8px;border:1px solid #ddd;color:{txt_color};">{esc(i)}</td></tr>' for idx, i in enumerate(b.items or [], 1))
-        return f'<div style="margin:18px 0;">{h2}<table style="width:100%;border-collapse:collapse;font-size:13px;">{rows}</table></div>'
+        items = b.items or []
+        rows  = ""
+        for idx, item in enumerate(items, 1):
+            bg_r = bg if idx % 2 == 1 else bg2
+            rows += (
+                f'<tr>'
+                f'<td style="width:28px;text-align:center;font-weight:bold;color:#fff;'
+                f'background:{a};padding:8px;border:1px solid #ddd;">{idx}</td>'
+                f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};'
+                f'line-height:1.8;color:{txt_color};">{esc(item)}</td>'
+                f'</tr>'
+            )
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">{rows}</table>'
+            f'</div>'
+        )
+
     elif bt == "pros_cons":
-        p_lis = "".join(f'<li style="margin-bottom:6px;font-size:13px;">{esc(x)}</li>' for x in (b.pros or []))
-        c_lis = "".join(f'<li style="margin-bottom:6px;font-size:13px;">{esc(x)}</li>' for x in (b.cons or []))
-        return f'<div style="margin:18px 0;">{h2}<table style="width:100%;border-collapse:separate;border-spacing:6px 0;"><tr><td style="vertical-align:top;padding:14px;background:#f0fff4;border:1px solid #9ae6b4;border-radius:6px;width:50%;"><strong style="color:#276749;">{lang["pros_label"]}</strong><ul style="{p_side}:18px;">{p_lis}</ul></td><td style="vertical-align:top;padding:14px;background:#fff5f5;border:1px solid #feb2b2;border-radius:6px;width:50%;"><strong style="color:#9b2c2c;">{lang["cons_label"]}</strong><ul style="{p_side}:18px;">{c_lis}</ul></td></tr></table></div>'
+        pros  = b.pros or []
+        cons  = b.cons or []
+        p_lis = "".join(f'<li style="margin-bottom:6px;font-size:13px;">{esc(x)}</li>' for x in pros)
+        c_lis = "".join(f'<li style="margin-bottom:6px;font-size:13px;">{esc(x)}</li>' for x in cons)
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<table style="width:100%;border-collapse:separate;border-spacing:6px 0;">'
+            f'<tr>'
+            f'<td style="vertical-align:top;padding:14px;background:#f0fff4;'
+            f'border:1px solid #9ae6b4;border-radius:6px;width:50%;">'
+            f'<strong style="color:#276749;display:block;margin-bottom:8px;">{lang["pros_label"]}</strong>'
+            f'<ul style="{p_side}:18px;margin:0;">{p_lis}</ul></td>'
+            f'<td style="vertical-align:top;padding:14px;background:#fff5f5;'
+            f'border:1px solid #feb2b2;border-radius:6px;width:50%;">'
+            f'<strong style="color:#9b2c2c;display:block;margin-bottom:8px;">{lang["cons_label"]}</strong>'
+            f'<ul style="{p_side}:18px;margin:0;">{c_lis}</ul></td>'
+            f'</tr></table></div>'
+        )
+
     elif bt == "table":
-        ths = "".join(f'<th style="background:{p};color:#fff;padding:9px;text-align:{align};">{esc(h)}</th>' for h in (b.headers or []))
-        rows = "".join(f"<tr>{''.join(f'<td style=\"padding:8px;border:1px solid #ddd;color:{txt_color};\">{esc(c)}</td>' for c in r)}</tr>" for r in (b.rows or []))
-        return f'<div style="margin:18px 0;">{h2}<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table></div>'
+        headers   = b.headers or []
+        rows_data = b.rows or []
+        ths = "".join(
+            f'<th style="background:{p};color:#fff;padding:9px 12px;'
+            f'text-align:{align};font-weight:bold;">{esc(h)}</th>'
+            for h in headers
+        )
+        rows = ""
+        for ridx, row in enumerate(rows_data):
+            bg_r = bg if ridx % 2 == 0 else bg2
+            tds  = "".join(
+                f'<td style="padding:8px 12px;border:1px solid #ddd;'
+                f'background:{bg_r};color:{txt_color};">{esc(c)}</td>'
+                for c in row
+            )
+            rows += f"<tr>{tds}</tr>"
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+            f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table>'
+            f'</div>'
+        )
+
     elif bt == "comparison":
-        sa, sb = esc(b.side_a or "A"), esc(b.side_b or "B")
-        rows = "".join(f'<tr><td style="font-weight:bold;color:{p};padding:8px;border:1px solid #ddd;background:{bg};">{esc(c)}</td><td style="padding:8px;border:1px solid #ddd;">{esc((b.side_a_values or [])[idx] if idx < len(b.side_a_values or []) else "-")}</td><td style="padding:8px;border:1px solid #ddd;">{esc((b.side_b_values or [])[idx] if idx < len(b.side_b_values or []) else "-")}</td></tr>' for idx, c in enumerate(b.criteria or []))
-        return f'<div style="margin:18px 0;">{h2}<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr><th style="background:{p};color:#fff;padding:9px;">المعيار</th><th style="background:{p};color:#fff;padding:9px;">{sa}</th><th style="background:{p};color:#fff;padding:9px;">{sb}</th></tr></thead><tbody>{rows}</tbody></table></div>'
+        sa  = esc(b.side_a or "A")
+        sb  = esc(b.side_b or "B")
+        cr  = b.criteria or []
+        av  = b.side_a_values or []
+        bv  = b.side_b_values or []
+        ths = (
+            f'<th style="background:{p};color:#fff;padding:9px 12px;">المعيار</th>'
+            f'<th style="background:{p};color:#fff;padding:9px 12px;">{sa}</th>'
+            f'<th style="background:{p};color:#fff;padding:9px 12px;">{sb}</th>'
+        )
+        rows = ""
+        for idx, crit in enumerate(cr):
+            av_val = esc(av[idx]) if idx < len(av) else "-"
+            bv_val = esc(bv[idx]) if idx < len(bv) else "-"
+            bg_r   = bg if idx % 2 == 0 else bg2
+            rows += (
+                f'<tr>'
+                f'<td style="font-weight:bold;color:{p};padding:8px 12px;border:1px solid #ddd;background:{bg};">{esc(crit)}</td>'
+                f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};">{av_val}</td>'
+                f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};">{bv_val}</td>'
+                f'</tr>'
+            )
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+            f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table>'
+            f'</div>'
+        )
+
     elif bt == "quote":
-        return f'<div style="margin:18px 0;">{h2}<blockquote style="{b_side}:5px solid {a};{p_side}:16px;margin:0;color:#555;font-style:italic;">{esc(b.text or "")}</blockquote></div>'
-    
-    return f'<div style="margin:18px 0;">{h2}{text_to_paras(b.text or "", align)}</div>'
+        bd = "border-right" if is_rtl else "border-left"
+        pd = "padding-right" if is_rtl else "padding-left"
+        return (
+            f'<div style="margin:18px 0;">{h2}'
+            f'<blockquote style="{bd}:5px solid {a};{pd}:16px;margin:0;'
+            f'color:#555;font-style:italic;line-height:1.9;">'
+            f'{esc(b.text or "")}</blockquote></div>'
+        )
+
+    else:
+        return f'<div style="margin:18px 0;">{h2}{text_to_paras(b.text or "", align)}</div>'
+
 
 def render_html(report: DynamicReport, template_name: str, language_key: str) -> str:
-    tc, lang = TEMPLATES[template_name], LANGUAGES[language_key]
-    is_dark = template_name == "dark_elegant"
-    page_bg, body_color, box_bg = ("#1a202c", "#e2e8f0", "#2d3748") if is_dark else ("#ffffff", "#333333", tc["bg"])
-    b_side = "border-right" if lang["dir"] == "rtl" else "border-left"
+    tc   = TEMPLATES[template_name]
+    lang = LANGUAGES[language_key]
+    p    = tc["primary"]
+    a    = tc["accent"]
+    bg   = tc["bg"]
+    dir_ = lang["dir"]
+    align= lang["align"]
+    font = lang["font"]
+    is_rtl  = dir_ == "rtl"
+    b_side  = "border-right" if is_rtl else "border-left"
+    is_dark = (template_name == "dark_elegant")
+    page_bg    = "#1a202c" if is_dark else "#ffffff"
+    body_color = "#e2e8f0" if is_dark else "#333333"
+    box_bg     = "#2d3748" if is_dark else bg
+
     blocks_html = "\n".join(render_block(bl, tc, lang) for bl in report.blocks)
 
     return f"""<!DOCTYPE html>
-<html lang="{lang['lang_attr']}" dir="{lang['dir']}">
+<html lang="{lang['lang_attr']}" dir="{dir_}">
 <head>
 <meta charset="UTF-8">
 <style>
   @page {{ size: A4; margin: 2.5cm; }}
   * {{ box-sizing: border-box; }}
-  body {{ font-family: {lang['font']}; direction: {lang['dir']}; text-align: {lang['align']}; line-height: 1.95; color: {body_color}; background: {page_bg}; font-size: 14px; margin: 0; padding: 0; }}
+  body {{
+    font-family: {font};
+    direction: {dir_};
+    text-align: {align};
+    line-height: 1.95;
+    color: {body_color};
+    background: {page_bg};
+    font-size: 14px;
+    margin: 0; padding: 0;
+  }}
 </style>
 </head>
 <body>
-<h1 style="text-align:center;color:{tc['primary']};font-size:24px;font-weight:bold;padding-bottom:14px;margin-bottom:28px;border-bottom:3px solid {tc['accent']};">{esc(report.title)}</h1>
-<div style="background:{box_bg};padding:18px 22px;border-radius:8px;margin:0 0 20px 0;{b_side}:5px solid {tc['accent']};">
-  <h2 style="color:{tc['primary']};font-size:15px;font-weight:bold;margin:0 0 10px 0;">📚 {lang['intro_label']}</h2>
-  {text_to_paras(report.introduction, lang['align'])}
+
+<h1 style="text-align:center;color:{p};font-size:24px;font-weight:bold;
+           padding-bottom:14px;margin-bottom:28px;
+           border-bottom:3px solid {a};">
+  {esc(report.title)}
+</h1>
+
+<div style="background:{box_bg};padding:18px 22px;border-radius:8px;
+            margin:0 0 20px 0;{b_side}:5px solid {a};">
+  <h2 style="color:{p};font-size:15px;font-weight:bold;margin:0 0 10px 0;">
+    📚 {lang['intro_label']}
+  </h2>
+  {text_to_paras(report.introduction, align)}
 </div>
+
 {blocks_html}
-<div style="background:{box_bg};padding:18px 22px;border-radius:8px;margin:20px 0 0 0;{b_side}:5px solid {tc['accent']};">
-  <h2 style="color:{tc['primary']};font-size:15px;font-weight:bold;margin:0 0 10px 0;">🎯 {lang['conclusion_label']}</h2>
-  {text_to_paras(report.conclusion, lang['align'])}
+
+<div style="background:{box_bg};padding:18px 22px;border-radius:8px;
+            margin:20px 0 0 0;{b_side}:5px solid {a};">
+  <h2 style="color:{p};font-size:15px;font-weight:bold;margin:0 0 10px 0;">
+    🎯 {lang['conclusion_label']}
+  </h2>
+  {text_to_paras(report.conclusion, align)}
 </div>
+
 </body>
 </html>"""
+
 
 # ═══════════════════════════════════════════════════
 # KEYBOARD HELPERS
 # ═══════════════════════════════════════════════════
-def lang_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(v["name"], callback_data=f"lang_{k}")] for k, v in LANGUAGES.items()])
-def depth_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(v["name"], callback_data=f"depth_{k}")] for k, v in DEPTH_OPTIONS.items()])
-def template_keyboard(): return InlineKeyboardMarkup([[InlineKeyboardButton(v["name"], callback_data=f"tpl_{k}")] for k, v in TEMPLATES.items()])
+def lang_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(v["name"], callback_data=f"lang_{k}")]
+        for k, v in LANGUAGES.items()
+    ])
+
+def depth_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(v["name"], callback_data=f"depth_{k}")]
+        for k, v in DEPTH_OPTIONS.items()
+    ])
+
+def template_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(v["name"], callback_data=f"tpl_{k}")]
+        for k, v in TEMPLATES.items()
+    ])
+
 
 # ═══════════════════════════════════════════════════
 # TELEGRAM HANDLERS
 # ═══════════════════════════════════════════════════
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = f"🎓 <b>مرحباً {update.effective_user.first_name}!</b>\n\nأرسل موضوع تقريرك للبدء."
+    user_id = update.effective_user.id
+    # ✅ نمسح الجلسة القديمة عند /start
+    user_sessions.pop(user_id, None)
+
+    name = update.effective_user.first_name
+    msg = f"""
+🎓 <b>مرحباً {name}!</b>
+
+أنا <b>بوت التقارير الجامعية الذكي</b> 🤖
+
+✨ <b>كيف يعمل البوت؟</b>
+1️⃣ أرسل موضوع تقريرك
+2️⃣ اختر اللغة
+3️⃣ أجب على <b>أسئلة ذكية</b> مخصصة لموضوعك
+4️⃣ اختر العمق والتصميم
+5️⃣ احصل على تقريرك PDF احترافي 🎉
+
+🧠 <b>ذكاء البوت:</b>
+• يولّد أسئلة مخصصة لكل موضوع
+• يبني الهيكل بناءً على إجاباتك
+• يختار جداول ومقارنات ونقاط تلقائياً
+• موجّه خصيصاً لطلاب الجامعة
+
+🚀 <b>أرسل موضوع تقريرك الآن!</b>
+"""
     await update.message.reply_text(msg, parse_mode='HTML')
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text    = update.message.text.strip()
 
-    if user_id in user_sessions and user_sessions[user_id].get("state") == "answering":
+    # ── إذا كان المستخدم في جلسة نشطة ──
+    if user_id in user_sessions:
         session = user_sessions[user_id]
-        answers, questions = session.setdefault("answers", []), session.get("dynamic_questions", [])
-        answers.append(text)
+        state   = session.get("state")
 
-        if len(answers) < len(questions):
-            await update.message.reply_text(f"✅ تم. ❓ <b>السؤال {len(answers)+1}/{len(questions)}:</b>\n{questions[len(answers)]}", parse_mode='HTML')
-        else:
-            session["state"] = "choosing_depth"
-            await update.message.reply_text("✅ <b>تم حفظ الإجابات.</b>\n\n📏 <b>اختر عمق التقرير:</b>", reply_markup=depth_keyboard(), parse_mode='HTML')
+        # ✅ FIX 3: استقبال الإجابات في حالة "answering"
+        if state == "answering":
+            answers   = session.setdefault("answers", [])
+            questions = session.get("dynamic_questions", [])
+            answers.append(text)
+
+            if len(answers) < len(questions):
+                # السؤال التالي
+                next_q = questions[len(answers)]
+                q_num  = len(answers) + 1
+                await update.message.reply_text(
+                    f"✅ تم تسجيل إجابتك.\n\n"
+                    f"❓ <b>السؤال {q_num}/{len(questions)}:</b>\n{next_q}",
+                    parse_mode='HTML'
+                )
+            else:
+                # انتهت الأسئلة → اختر العمق
+                session["state"] = "choosing_depth"
+                await update.message.reply_text(
+                    "✅ <b>ممتاز! تم تسجيل جميع إجاباتك.</b>\n\n📏 <b>اختر عمق التقرير:</b>",
+                    reply_markup=depth_keyboard(),
+                    parse_mode='HTML'
+                )
+            return
+
+        # ✅ FIX 4: منع التعامل مع أي رسالة كموضوع جديد في الحالات النشطة
+        if state in ACTIVE_STATES:
+            state_msgs = {
+                "generating_questions": "⏳ جاري تحليل موضوعك... انتظر قليلاً.",
+                "choosing_depth":       "📏 من فضلك اختر <b>عمق التقرير</b> من الأزرار أعلاه.",
+                "choosing_template":    "🎨 من فضلك اختر <b>تصميم التقرير</b> من الأزرار أعلاه.",
+                "in_queue":             "⏳ تقريرك في الطابور. انتظر حتى يكتمل أو أرسل /start لإلغائه.",
+            }
+            await update.message.reply_text(
+                state_msgs.get(state, "⏳ جاري العمل على طلبك... انتظر."),
+                parse_mode='HTML'
+            )
+            return
+
+    # ── موضوع جديد ──
+    if len(text) < 5:
+        await update.message.reply_text("❌ الموضوع قصير جداً. أرسل موضوعاً أوضح.")
         return
-
-    if len(text) < 5 or len(text) > 250:
-        await update.message.reply_text("❌ طول الموضوع غير مناسب.")
+    if len(text) > 250:
+        await update.message.reply_text("❌ الموضوع طويل جداً. اختصره لأقل من 250 حرف.")
         return
 
     user_sessions[user_id] = {"topic": text, "state": "choosing_lang"}
-    await update.message.reply_text(f"📝 <b>الموضوع:</b> <i>{html_lib.escape(text)}</i>\n\n🌐 <b>اختر اللغة:</b>", reply_markup=lang_keyboard(), parse_mode='HTML')
+    safe = text.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
+
+    await update.message.reply_text(
+        f"📝 <b>الموضوع:</b> <i>{safe}</i>\n\n🌐 <b>اختر لغة التقرير:</b>",
+        reply_markup=lang_keyboard(),
+        parse_mode='HTML'
+    )
+
 
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id, lang = query.from_user.id, query.data.replace("lang_", "")
-
-    if user_id not in user_sessions:
-        return await query.edit_message_text("❌ الجلسة منتهية.")
-
-    session = user_sessions[user_id]
-    session["language"], session["state"] = lang, "generating_questions"
-    await query.edit_message_text(f"✅ جاري التحليل...")
-
-    try:
-        questions = await asyncio.get_event_loop().run_in_executor(None, generate_dynamic_questions, session["topic"], lang)
-        session["dynamic_questions"], session["state"] = questions, "answering"
-        await query.edit_message_text(f"🧠 <b>لدي {len(questions)} أسئلة لتوضيح الطلب:</b>\n\n❓ <b>السؤال 1/{len(questions)}:</b>\n{questions[0]}\n\n<i>اكتب إجابتك 👇</i>", parse_mode='HTML')
-    except Exception as e:
-        logger.error(f"Questions err: {e}")
-        session["dynamic_questions"], session["answers"], session["state"] = [], [], "choosing_depth"
-        await query.edit_message_text("⚠️ تعذر التوليد. <b>اختر العمق:</b>", reply_markup=depth_keyboard(), parse_mode='HTML')
-
-async def depth_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.from_user.id not in user_sessions: return await query.edit_message_text("❌ انتهت الجلسة.")
-    user_sessions[query.from_user.id].update({"depth": query.data.replace("depth_", ""), "state": "choosing_template"})
-    await query.edit_message_text("🎨 <b>اختر التصميم:</b>", reply_markup=template_keyboard(), parse_mode='HTML')
-
-async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+    query   = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    if user_id not in user_sessions: return await query.edit_message_text("❌ انتهت الجلسة.")
+    lang    = query.data.replace("lang_", "")
+
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
+        return
+
+    session             = user_sessions[user_id]
+    session["language"] = lang
+    session["state"]    = "generating_questions"
+
+    await query.edit_message_text(
+        f"✅ <b>اللغة:</b> {LANGUAGES[lang]['name']}\n\n"
+        f"⏳ <i>جاري تحليل موضوعك وتوليد الأسئلة المناسبة...</i>",
+        parse_mode='HTML'
+    )
+
+    try:
+        loop      = asyncio.get_event_loop()
+        topic     = session["topic"]
+        questions = await loop.run_in_executor(
+            None, generate_dynamic_questions, topic, lang
+        )
+
+        if not questions:
+            raise ValueError("لم يتم توليد أي أسئلة")
+
+        session["dynamic_questions"] = questions
+        session["state"]             = "answering"
+
+        first_q   = questions[0]
+        total_q   = len(questions)
+        q_word    = "سؤال" if total_q == 1 else "أسئلة"
+
+        await query.edit_message_text(
+            f"🧠 <b>بناءً على موضوعك، لدي {total_q} {q_word} لأفهم ما تريده بالضبط:</b>\n\n"
+            f"❓ <b>السؤال 1/{total_q}:</b>\n{first_q}\n\n"
+            f"<i>اكتب إجابتك بحرية 👇</i>",
+            parse_mode='HTML'
+        )
+
+    except Exception as e:
+        logger.error(f"Question generation failed: {e}", exc_info=True)
+        # Fallback: تخطى الأسئلة والذهاب للعمق مباشرة
+        session["dynamic_questions"] = []
+        session["answers"]           = []
+        session["state"]             = "choosing_depth"
+        await query.edit_message_text(
+            "⚠️ تعذّر توليد الأسئلة. سنكمل مباشرةً.\n\n📏 <b>اختر عمق التقرير:</b>",
+            reply_markup=depth_keyboard(),
+            parse_mode='HTML'
+        )
+
+
+async def depth_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query   = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    depth   = query.data.replace("depth_", "")
+
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
+        return
+
+    # ✅ تحقق أن المستخدم في الحالة الصحيحة
+    state = user_sessions[user_id].get("state")
+    if state != "choosing_depth":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
+
+    user_sessions[user_id]["depth"] = depth
+    user_sessions[user_id]["state"] = "choosing_template"
+
+    await query.edit_message_text(
+        f"✅ <b>العمق:</b> {DEPTH_OPTIONS[depth]['name']}\n\n🎨 <b>اختر تصميم التقرير:</b>",
+        reply_markup=template_keyboard(),
+        parse_mode='HTML'
+    )
+
+
+async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query   = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    tpl     = query.data.replace("tpl_", "")
+
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
+        return
+
+    # ✅ تحقق أن المستخدم في الحالة الصحيحة
+    state = user_sessions[user_id].get("state")
+    if state != "choosing_template":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
 
     session = user_sessions[user_id]
-    session.update({"template": query.data.replace("tpl_", ""), "state": "in_queue"})
+    session["template"] = tpl
+    session["state"]    = "in_queue"
+
+    topic      = session["topic"]
+    lang       = session.get("language", "ar")
+    depth      = session.get("depth", "medium")
+    lang_name  = LANGUAGES[lang]["name"]
+    depth_name = DEPTH_OPTIONS[depth]["name"]
+    tpl_name   = TEMPLATES[tpl]["name"]
+
+    # Queue position
     pos = report_queue.qsize() + 1
     queue_positions[user_id] = pos
+    safe = topic.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
 
-    status = "🔄 <b>تقريرك قيد الإنشاء...</b>" if pos == 1 else f"⏳ <b>الترتيب {pos}</b>"
-    sent = await query.edit_message_text(status, parse_mode='HTML')
-    await report_queue.put((user_id, session.copy(), sent.message_id))
+    if pos == 1:
+        status_msg = "🔄 <b>تقريرك قيد الإنشاء الآن...</b>"
+    else:
+        status_msg = f"⏳ <b>أنت في الطابور — الترتيب {pos}</b>\nسيُنشأ تقريرك قريباً..."
+
+    # ✅ FIX 5: استخدام message_id من query.message مباشرة وهو أكثر موثوقية
+    msg_id = query.message.message_id
+
+    await query.edit_message_text(
+        f"{status_msg}\n\n"
+        f"📝 <b>الموضوع:</b> <i>{safe}</i>\n"
+        f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}",
+        parse_mode='HTML'
+    )
+
+    await report_queue.put((user_id, session.copy(), msg_id))
+
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Error: {context.error}")
+    logger.error(f"Update error: {context.error}", exc_info=context.error)
+    try:
+        if update and update.effective_message:
+            await update.effective_message.reply_text("❌ حدث خطأ. حاول مرة أخرى.")
+    except Exception:
+        pass
+
 
 # ═══════════════════════════════════════════════════
 # MAIN
@@ -404,15 +855,41 @@ async def post_init(app):
     global report_queue
     report_queue = asyncio.Queue()
     asyncio.create_task(queue_worker(app))
+    logger.info("✅ Queue worker started")
+
 
 if __name__ == '__main__':
-    threading.Thread(target=run_flask, daemon=True).start()
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("🌐 Flask started")
+
     token = os.getenv("TELEGRAM_TOKEN")
-    app = ApplicationBuilder().token(token).post_init(post_init).build()
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CallbackQueryHandler(language_callback, pattern=r'^lang_'))
-    app.add_handler(CallbackQueryHandler(depth_callback,    pattern=r'^depth_'))
-    app.add_handler(CallbackQueryHandler(template_callback, pattern=r'^tpl_'))
-    app.add_error_handler(error_handler)
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    if not token:
+        logger.error("❌ TELEGRAM_TOKEN missing")
+        exit(1)
+
+    try:
+        app = (
+            ApplicationBuilder()
+            .token(token)
+            .post_init(post_init)
+            .build()
+        )
+
+        app.add_handler(CommandHandler('start', start))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        app.add_handler(CallbackQueryHandler(language_callback, pattern=r'^lang_'))
+        app.add_handler(CallbackQueryHandler(depth_callback,    pattern=r'^depth_'))
+        app.add_handler(CallbackQueryHandler(template_callback, pattern=r'^tpl_'))
+        app.add_error_handler(error_handler)
+
+        logger.info("🤖 Smart University Reports Bot v4.0 Ready!")
+        print("=" * 60)
+        print("✅ Smart University Reports Bot — v4.0")
+        print("=" * 60)
+
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    except Exception as e:
+        logger.error(f"❌ Startup failed: {e}", exc_info=True)
+        exit(1)
