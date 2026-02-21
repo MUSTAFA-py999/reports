@@ -217,9 +217,9 @@ TEMPLATES = {
 }
 
 DEPTH_OPTIONS = {
-    "short":    {"name": "📝 مختصر (3 أقسام)",  "blocks": 3, "words": "80-120"},
-    "medium":   {"name": "📄 متوسط (4 أقسام)",  "blocks": 4, "words": "160-220"},
-    "detailed": {"name": "📚 مفصل (5 أقسام)",   "blocks": 5, "words": "250-320"},
+    "short":    {"name": "📝 مختصر ",  "blocks": 3, "words": "200-300"},
+    "medium":   {"name": "📄 متوسط ",  "blocks": 4, "words": "320-410"},
+    "detailed": {"name": "📚 مفصل ",   "blocks": 5, "words": "420-540"},
 }
 
 # رسائل التوجيه لكل حالة عندما يرسل المستخدم نصاً بدل استخدام الأزرار
@@ -1012,3 +1012,4 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
+
