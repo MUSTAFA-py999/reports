@@ -154,9 +154,9 @@ class ReportBlock(BaseModel):
 
 class DynamicReport(BaseModel):
     title: str = Field(description="Report title")
-    introduction: str = Field(description="Introduction paragraph (120-180 words)")
+    introduction: str = Field(description="Short introduction: 2-3 sentences MAX. Simple and direct. No filler phrases.")
     blocks: List[ReportBlock] = Field(description="Content blocks")
-    conclusion: str = Field(description="Conclusion paragraph (100-140 words). MANDATORY.")
+    conclusion: str = Field(description="Conclusion: 2-4 sentences. Concrete takeaway. MANDATORY.")
 
 
 # ═══════════════════════════════════════════════════
@@ -276,43 +276,56 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
     for i, (q, a) in enumerate(zip(questions, answers), 1):
         qa_block += f"Q{i}: {q}\nA{i}: {a}\n\n"
 
-    return f"""You are an expert academic writer specializing in university-level reports.
+    return f"""You are a skilled academic writer. Your goal is to write a university report that feels HUMAN-WRITTEN — not AI-generated.
 
 ══════════════════════════════════════
-TARGET AUDIENCE: University students (undergraduate/graduate)
 TOPIC: {topic}
 LANGUAGE: {lang["instruction"]}
-DEPTH: Exactly {d["blocks"]} content blocks. Each block: {d["words"]} words.
+DEPTH: Exactly {d["blocks"]} content blocks.
 ══════════════════════════════════════
 
-STUDENT'S REQUIREMENTS (from their answers):
+STUDENT'S REQUIREMENTS:
 {qa_block.strip()}
 
 ══════════════════════════════════════
-BLOCK TYPES AVAILABLE:
-- "paragraph"     → fill "text" with continuous paragraph text
-- "bullets"       → fill "items" with 4-7 bullet point strings
-- "numbered_list" → fill "items" with 4-7 numbered step strings
-- "table"         → fill "headers" (list) + "rows" (list of lists, 4-6 rows)
-- "pros_cons"     → fill "pros" list (4-6) + "cons" list (4-6)
-- "comparison"    → fill "side_a", "side_b", "criteria", "side_a_values", "side_b_values" (all same length 5-7)
-- "stats"         → fill "items" as "Label: value — explanation" (4-6 items)
-- "examples"      → fill "items" with 4-6 concrete real-world example strings
-- "quote"         → fill "text" with a relevant quote or key definition
+BLOCK TYPES:
+- "paragraph"     → "text": flowing prose (use \\n to break mid-thought and start fresh line — varies rhythm)
+- "bullets"       → "items": 4-6 items. Each item can contain a sub-note using " — " like: "Main point — short clarifying detail here"
+- "numbered_list" → "items": 4-6 steps. Same sub-note style allowed.
+- "table"         → "headers" + "rows" (4-5 rows)
+- "pros_cons"     → "pros" + "cons" (3-5 each). Sub-notes allowed with " — "
+- "comparison"    → "side_a", "side_b", "criteria", "side_a_values", "side_b_values"
+- "stats"         → "items": "Label: value — brief context" (4-5 items)
+- "examples"      → "items": 4-5 real examples with " — " sub-note
+- "quote"         → "text": a sharp definition or key insight
 
 ══════════════════════════════════════
-INTELLIGENCE RULES:
-1. Analyze student answers deeply — their requirements define the structure
-2. Choose block types that BEST serve the content:
-   • Comparisons → use "comparison" or "pros_cons"
-   • Steps/methods → use "numbered_list"
-   • Data/numbers → use "stats" or "table"
-   • Concepts → use "paragraph"
-   • Lists of points → use "bullets"
-3. Make the report genuinely useful for a university assignment
-4. Use academic language appropriate for university level
-5. "conclusion" is MANDATORY — never omit it
-6. ALL text must be in the specified language — zero code-switching
+WRITING STYLE — CRITICAL RULES:
+
+1. INTRODUCTION: 2-3 sentences only. Direct. No "يُعدّ هذا الموضوع من أهم..." filler.
+
+2. SUB-BULLETS: Actively use " — " inside bullet/numbered/pros_cons items to embed short inline notes.
+   Example: "الذكاء الاصطناعي التوليدي — يشمل النماذج اللغوية الكبيرة وأدوات إنشاء الصور"
+
+3. LINE BREAKS FOR RHYTHM: In paragraph "text" fields, use \\n to end a thought mid-line and start the next on a new line.
+   This creates breathing room and avoids walls of text. Use 2-4 breaks per paragraph block.
+
+4. HUMAN WRITING PATTERNS — avoid AI tells:
+   • Vary sentence length: mix short punchy sentences with longer analytical ones
+   • NO formulaic openers like "يتناول هذا التقرير..." or "In this report, we will..."
+   • NO symmetrical lists where every bullet is exactly the same length
+   • Use occasional rhetorical questions or direct statements mid-section
+   • Conclusions should feel like a genuine takeaway, not a summary of what was just said
+   • Avoid starting every paragraph with the section title rephrased
+
+5. BLOCK SELECTION: match content to block type naturally:
+   • Comparisons → "comparison" or "pros_cons"
+   • Processes → "numbered_list"
+   • Data/numbers → "stats" or "table"
+   • Analysis/opinion → "paragraph" with line breaks
+   • Feature lists → "bullets" with sub-notes
+
+6. ALL text in specified language. conclusion is MANDATORY.
 
 {format_instructions}"""
 
@@ -348,6 +361,19 @@ def generate_report(session: dict):
 # ═══════════════════════════════════════════════════
 def esc(v):
     return html_lib.escape(str(v)) if v is not None else ""
+
+def render_item_with_subnote(item: str, txt_color: str, accent: str) -> str:
+    """Renders a list item, styling the sub-note after ' — ' in a muted smaller font."""
+    sep = " — "
+    if sep in str(item):
+        parts = str(item).split(sep, 1)
+        main = esc(parts[0].strip())
+        note = esc(parts[1].strip())
+        return (
+            f'{main}'
+            f'<span style="color:{accent};font-size:0.88em;font-weight:normal;"> — {note}</span>'
+        )
+    return esc(item)
 
 def text_to_paras(text: str, align: str) -> str:
     lines = [l.strip() for l in str(text).split('\n') if l.strip()]
@@ -385,7 +411,11 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
     elif bt in ("bullets", "numbered_list"):
         items = b.items or []
         tag   = "ol" if bt == "numbered_list" else "ul"
-        lis   = "".join(f'<li style="margin-bottom:7px;line-height:1.8;color:{txt_color};">{esc(i)}</li>' for i in items)
+        lis   = "".join(
+            f'<li style="margin-bottom:9px;line-height:1.85;color:{txt_color};">'
+            f'{render_item_with_subnote(i, txt_color, a)}</li>'
+            for i in items
+        )
         return f'<div style="margin:18px 0;">{h2}<{tag} style="{p_side}:22px;margin:0;">{lis}</{tag}></div>'
 
     elif bt == "stats":
@@ -421,7 +451,8 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 f'<td style="width:28px;text-align:center;font-weight:bold;color:#fff;'
                 f'background:{a};padding:8px;border:1px solid #ddd;">{idx}</td>'
                 f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};'
-                f'line-height:1.8;color:{txt_color};">{esc(item)}</td>'
+                f'line-height:1.85;color:{txt_color};">'
+                f'{render_item_with_subnote(item, txt_color, a)}</td>'
                 f'</tr>'
             )
         return (
@@ -433,8 +464,16 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
     elif bt == "pros_cons":
         pros  = b.pros or []
         cons  = b.cons or []
-        p_lis = "".join(f'<li style="margin-bottom:6px;font-size:13px;">{esc(x)}</li>' for x in pros)
-        c_lis = "".join(f'<li style="margin-bottom:6px;font-size:13px;">{esc(x)}</li>' for x in cons)
+        p_lis = "".join(
+            f'<li style="margin-bottom:7px;font-size:13px;line-height:1.8;">'
+            f'{render_item_with_subnote(x, txt_color, "#276749")}</li>'
+            for x in pros
+        )
+        c_lis = "".join(
+            f'<li style="margin-bottom:7px;font-size:13px;line-height:1.8;">'
+            f'{render_item_with_subnote(x, txt_color, "#9b2c2c")}</li>'
+            for x in cons
+        )
         return (
             f'<div style="margin:18px 0;">{h2}'
             f'<table style="width:100%;border-collapse:separate;border-spacing:6px 0;">'
