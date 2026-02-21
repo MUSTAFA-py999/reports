@@ -217,15 +217,16 @@ TEMPLATES = {
 }
 
 DEPTH_OPTIONS = {
-    "short":    {"name": "📝 مختصر (3 أقسام)",  "blocks": 3, "words": "180-250"},
-    "medium":   {"name": "📄 متوسط (4 أقسام)",  "blocks": 4, "words": "260-340"},
-    "detailed": {"name": "📚 مفصل (5 أقسام)",   "blocks": 5, "words": "340-410"},
+    "short":    {"name": "📝 مختصر (3 أقسام)",  "blocks": 3, "words": "80-120"},
+    "medium":   {"name": "📄 متوسط (4 أقسام)",  "blocks": 4, "words": "160-220"},
+    "detailed": {"name": "📚 مفصل (5 أقسام)",   "blocks": 5, "words": "250-320"},
 }
 
 # رسائل التوجيه لكل حالة عندما يرسل المستخدم نصاً بدل استخدام الأزرار
 STATE_GUIDANCE = {
     "choosing_lang":        "🌐 من فضلك <b>اختر اللغة</b> من الأزرار أعلاه.",
     "generating_questions": "⏳ جاري تحليل موضوعك وتوليد الأسئلة... انتظر قليلاً.",
+    "choosing_title":       "📌 من فضلك <b>اكتب عنوان التقرير</b> أو اضغط الزر أعلاه لتركه للذكاء الاصطناعي.",
     "choosing_depth":       "📏 من فضلك <b>اختر عمق التقرير</b> من الأزرار أعلاه.",
     "choosing_template":    "🎨 من فضلك <b>اختر تصميم التقرير</b> من الأزرار أعلاه.",
     "in_queue":             "⏳ تقريرك في الطابور، انتظر حتى يكتمل.\nأرسل /cancel لإلغاء الطلب.",
@@ -264,13 +265,20 @@ def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
 
 
 def build_report_prompt(session: dict, format_instructions: str) -> str:
-    topic    = session["topic"]
-    lang_key = session.get("language", "ar")
-    depth    = session.get("depth", "medium")
-    lang     = LANGUAGES[lang_key]
-    d        = DEPTH_OPTIONS[depth]
-    questions = session.get("dynamic_questions", [])
-    answers   = session.get("answers", [])
+    topic       = session["topic"]
+    lang_key    = session.get("language", "ar")
+    depth       = session.get("depth", "medium")
+    lang        = LANGUAGES[lang_key]
+    d           = DEPTH_OPTIONS[depth]
+    questions   = session.get("dynamic_questions", [])
+    answers     = session.get("answers", [])
+    custom_title = session.get("custom_title")
+
+    title_instruction = (
+        f'TITLE: Use EXACTLY this title: "{custom_title}" — do not change it.'
+        if custom_title else
+        "TITLE: Generate a concise, academic title that fits the topic and student requirements."
+    )
 
     qa_block = ""
     for i, (q, a) in enumerate(zip(questions, answers), 1):
@@ -282,6 +290,7 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
 TOPIC: {topic}
 LANGUAGE: {lang["instruction"]}
 DEPTH: Exactly {d["blocks"]} content blocks.
+{title_instruction}
 ══════════════════════════════════════
 
 STUDENT'S REQUIREMENTS:
@@ -507,7 +516,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             )
             rows += f"<tr>{tds}</tr>"
         return (
-            f'<div style="margin:18px 0;">{h2}'
+            f'<div style="margin:18px 0;page-break-inside:avoid;">{h2}'
             f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
             f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table>'
             f'</div>'
@@ -537,7 +546,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 f'</tr>'
             )
         return (
-            f'<div style="margin:18px 0;">{h2}'
+            f'<div style="margin:18px 0;page-break-inside:avoid;">{h2}'
             f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
             f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table>'
             f'</div>'
@@ -631,6 +640,11 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
 # ═══════════════════════════════════════════════════
 # KEYBOARD HELPERS
 # ═══════════════════════════════════════════════════
+def title_keyboard():
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("🤖 اتركه للذكاء الاصطناعي", callback_data="title_auto")
+    ]])
+
 def lang_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(v["name"], callback_data=f"lang_{k}")]
@@ -728,15 +742,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode='HTML'
                 )
             else:
-                # انتهت كل الأسئلة → الانتقال لاختيار العمق
-                session["state"] = "choosing_depth"
+                # انتهت الأسئلة → سؤال العنوان
+                session["state"] = "choosing_title"
                 await update.message.reply_text(
                     "✅ <b>ممتاز! تم تسجيل جميع إجاباتك.</b>\n\n"
-                    "📏 <b>اختر عمق التقرير:</b>",
-                    reply_markup=depth_keyboard(),
+                    "📌 <b>هل تريد تحديد عنوان للتقرير؟</b>\n"
+                    "<i>اكتب العنوان الذي تريده، أو اضغط الزر أسفله لتركه للذكاء الاصطناعي.</i>",
+                    reply_markup=title_keyboard(),
                     parse_mode='HTML'
                 )
-            return  # ← دائماً نرجع هنا، لا نكمل للأسفل
+            return
+
+        # حالة كتابة عنوان مخصص
+        if state == "choosing_title":
+            session["custom_title"] = text
+            session["state"] = "choosing_depth"
+            await update.message.reply_text(
+                f"✅ <b>العنوان:</b> <i>{esc(text)}</i>\n\n"
+                "📏 <b>اختر عمق التقرير:</b>",
+                reply_markup=depth_keyboard(),
+                parse_mode='HTML'
+            )
+            return
 
         # أي حالة أخرى (يجب على المستخدم استخدام الأزرار)
         guidance = STATE_GUIDANCE.get(
@@ -762,6 +789,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📝 <b>الموضوع:</b> <i>{safe}</i>\n\n🌐 <b>اختر لغة التقرير:</b>",
         reply_markup=lang_keyboard(),
+        parse_mode='HTML'
+    )
+
+
+async def title_auto_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User chose to let AI generate the title."""
+    query   = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
+        return
+
+    session = user_sessions[user_id]
+    if session.get("state") != "choosing_title":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
+
+    session.pop("custom_title", None)   # بدون عنوان مخصص = الذكاء يولّده
+    session["state"] = "choosing_depth"
+    await query.edit_message_text(
+        "🤖 <b>سيقوم الذكاء الاصطناعي باختيار العنوان المناسب.</b>\n\n"
+        "📏 <b>اختر عمق التقرير:</b>",
+        reply_markup=depth_keyboard(),
         parse_mode='HTML'
     )
 
@@ -944,6 +996,7 @@ if __name__ == '__main__':
         app.add_handler(CommandHandler('start', start))
         app.add_handler(CommandHandler('cancel', cancel))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        app.add_handler(CallbackQueryHandler(title_auto_callback,    pattern=r'^title_auto$'))
         app.add_handler(CallbackQueryHandler(language_callback, pattern=r'^lang_'))
         app.add_handler(CallbackQueryHandler(depth_callback,    pattern=r'^depth_'))
         app.add_handler(CallbackQueryHandler(template_callback, pattern=r'^tpl_'))
@@ -959,4 +1012,3 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
-
