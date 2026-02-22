@@ -217,9 +217,9 @@ TEMPLATES = {
 }
 
 DEPTH_OPTIONS = {
-    "short":    {"name": "📝 مختصر (2 صفحات)",   "pages": 2,   "blocks_min": 3, "blocks_max": 4},
-    "medium":   {"name": "📄 متوسط (3-4 صفحات)", "pages": 3,   "blocks_min": 4, "blocks_max": 6},
-    "detailed": {"name": "📚 مفصل (5+ صفحات)",   "pages": 5,   "blocks_min": 6, "blocks_max": 9},
+    "medium":   {"name": "📄 متوسط (3-4 صفحات)", "pages": 4,  "blocks_min": 5,  "blocks_max": 7},
+    "detailed": {"name": "📚 مفصل (5-6 صفحات)",  "pages": 6,  "blocks_min": 7,  "blocks_max": 10},
+    "extended": {"name": "📖 موسّع (7+ صفحات)",   "pages": 8,  "blocks_min": 10, "blocks_max": 14},
 }
 
 # رسائل التوجيه لكل حالة عندما يرسل المستخدم نصاً بدل استخدام الأزرار
@@ -290,8 +290,8 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
 TOPIC: {topic}
 LANGUAGE: {lang["instruction"]}
 {title_instruction}
-TARGET LENGTH: approximately {d["pages"]} A4 pages when printed.
-SECTIONS: between {d["blocks_min"]} and {d["blocks_max"]} content blocks — choose whatever number fills the target pages naturally.
+TARGET LENGTH: EXACTLY {d["pages"]} A4 pages when printed (approximately {d["pages"] * 500} words total including all sections).
+SECTIONS: between {d["blocks_min"]} and {d["blocks_max"]} content blocks.
 ══════════════════════════════════════
 
 STUDENT'S REQUIREMENTS:
@@ -299,39 +299,38 @@ STUDENT'S REQUIREMENTS:
 
 ══════════════════════════════════════
 BLOCK TYPES:
-- "paragraph"     → "text": flowing prose (use \\n to break mid-thought and start fresh line — varies rhythm)
-- "bullets"       → "items": 5-8 items. Each item can contain a sub-note using " — " like: "Main point — short clarifying detail here"
-- "numbered_list" → "items": 5-8 steps. Same sub-note style allowed.
-- "table"         → "headers" + "rows" (5-7 rows, must stay on one page — keep concise)
-- "pros_cons"     → "pros" + "cons" (4-6 each). Sub-notes allowed with " — "
-- "comparison"    → "side_a", "side_b", "criteria", "side_a_values", "side_b_values" (5-7 criteria)
-- "stats"         → "items": "Label: value — brief context" (5-7 items)
-- "examples"      → "items": 5-7 real examples with " — " sub-note
-- "quote"         → "text": a sharp definition or key insight (2-4 sentences)
+- "paragraph"     → "text": 180-280 words of flowing prose. Use \\n 4-6 times for rhythm.
+- "bullets"       → "items": 6-9 items. Each item MUST have a sub-note: "Main point — detailed explanation of 10-20 words"
+- "numbered_list" → "items": 6-9 steps. Same sub-note style required.
+- "table"         → "headers" + "rows" (5-8 rows, must fit one page — keep cells concise)
+- "pros_cons"     → "pros" 5-7 items + "cons" 5-7 items. Each item MUST have " — " sub-note.
+- "comparison"    → "side_a", "side_b", "criteria"(6-8), "side_a_values", "side_b_values"
+- "stats"         → "items": "Label: value — 15-25 word context explanation" (6-8 items)
+- "examples"      → "items": 6-8 concrete examples, each with " — " explanation
+- "quote"         → "text": 3-5 sentences — key definition or insight expanded with context
 
 ══════════════════════════════════════
-WRITING STYLE — CRITICAL RULES:
+CONTENT BALANCE — MANDATORY:
+For every table or comparison block, you MUST include at least 2 paragraph or bullets blocks nearby.
+Maximum 2 table/comparison blocks per report regardless of length.
+Block distribution for {d["pages"]} pages should roughly be:
+  • 40% paragraph blocks (analytical prose)
+  • 35% bullets/numbered/pros_cons (structured lists)
+  • 25% table/stats/comparison/examples (visual data)
 
-1. INTRODUCTION: 3-4 sentences. Direct, engaging. No "يُعدّ هذا الموضوع من أهم..." filler.
+PAGE FILLING — CRITICAL:
+You MUST write enough content to fill {d["pages"]} A4 pages.
+Each page ≈ 500 words. Total ≈ {d["pages"] * 500} words.
+If you are short on content, ADD MORE paragraph blocks with deeper analysis — do NOT add more tables.
+Never pad with repetition — add genuine depth, examples, and analysis.
 
-2. CONTENT DENSITY: Each paragraph block must be 120-200 words. Each bullet/list block: 5-8 items with sub-notes.
-   Fill pages naturally — do NOT pad with repetition.
-
-3. SUB-BULLETS: Actively use " — " inside bullet/numbered/pros_cons items to embed short inline notes.
-
-4. LINE BREAKS FOR RHYTHM: In paragraph "text" fields, use \\n to end a thought and start fresh.
-   Use 3-5 breaks per paragraph block.
-
-5. HUMAN WRITING PATTERNS — avoid AI tells:
-   • Vary sentence length: mix short punchy sentences with longer analytical ones
-   • NO formulaic openers like "يتناول هذا التقرير..." or "In this report, we will..."
-   • NO symmetrical lists where every bullet is exactly the same length
-   • Conclusions: genuine takeaway — not a summary of what was just said
-
-6. BLOCK SELECTION: match content to type naturally.
-   Use diverse block types — avoid repeating the same type back-to-back more than twice.
-
-7. ALL text in specified language. conclusion is MANDATORY (3-5 sentences).
+WRITING STYLE:
+1. INTRODUCTION: 4-6 sentences. Engaging, sets context, raises a question or problem.
+2. PARAGRAPH BLOCKS: 180-280 words each. Vary sentence length. Use \\n 4-6 times.
+3. LIST ITEMS: never all the same length — mix short and long items deliberately.
+4. NO AI openers: never start with "يتناول هذا التقرير" / "In this report we will" / "هذا الموضوع مهم".
+5. CONCLUSION: 5-7 sentences. Genuine insight or forward-looking statement — not a summary.
+6. ALL text in specified language. Conclusion is MANDATORY.
 
 {format_instructions}"""
 
@@ -470,28 +469,65 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
     elif bt == "pros_cons":
         pros  = b.pros or []
         cons  = b.cons or []
-        p_lis = "".join(
-            f'<li style="margin-bottom:7px;font-size:13px;line-height:1.8;">'
-            f'{render_item_with_subnote(x, txt_color, "#276749")}</li>'
-            for x in pros
+
+        def pro_item(x):
+            sep = " — "
+            if sep in str(x):
+                parts = str(x).split(sep, 1)
+                return (
+                    f'<li style="margin-bottom:10px;line-height:1.85;font-size:13.5px;">'
+                    f'<span style="font-weight:700;color:#1a5e38;">{esc(parts[0].strip())}</span>'
+                    f'<br><span style="color:#2d6a4f;font-size:12.5px;padding-{("right" if is_rtl else "left")}:4px;">'
+                    f'↳ {esc(parts[1].strip())}</span></li>'
+                )
+            return (
+                f'<li style="margin-bottom:10px;line-height:1.85;font-size:13.5px;">'
+                f'<span style="font-weight:700;color:#1a5e38;">{esc(x)}</span></li>'
+            )
+
+        def con_item(x):
+            sep = " — "
+            if sep in str(x):
+                parts = str(x).split(sep, 1)
+                return (
+                    f'<li style="margin-bottom:10px;line-height:1.85;font-size:13.5px;">'
+                    f'<span style="font-weight:700;color:#7b1a1a;">{esc(parts[0].strip())}</span>'
+                    f'<br><span style="color:#922b21;font-size:12.5px;padding-{("right" if is_rtl else "left")}:4px;">'
+                    f'↳ {esc(parts[1].strip())}</span></li>'
+                )
+            return (
+                f'<li style="margin-bottom:10px;line-height:1.85;font-size:13.5px;">'
+                f'<span style="font-weight:700;color:#7b1a1a;">{esc(x)}</span></li>'
+            )
+
+        p_lis = "".join(pro_item(x) for x in pros)
+        c_lis = "".join(con_item(x) for x in cons)
+
+        pro_header = (
+            f'<div style="background:#1a5e38;color:#ffffff;font-weight:bold;font-size:14px;'
+            f'padding:10px 16px;border-radius:6px 6px 0 0;margin-bottom:0;letter-spacing:0.5px;">'
+            f'{lang["pros_label"]}</div>'
         )
-        c_lis = "".join(
-            f'<li style="margin-bottom:7px;font-size:13px;line-height:1.8;">'
-            f'{render_item_with_subnote(x, txt_color, "#9b2c2c")}</li>'
-            for x in cons
+        con_header = (
+            f'<div style="background:#7b1a1a;color:#ffffff;font-weight:bold;font-size:14px;'
+            f'padding:10px 16px;border-radius:6px 6px 0 0;margin-bottom:0;letter-spacing:0.5px;">'
+            f'{lang["cons_label"]}</div>'
         )
+
         return (
             f'<div style="margin:18px 0;">{h2}'
-            f'<table style="width:100%;border-collapse:separate;border-spacing:6px 0;">'
+            f'<table style="width:100%;border-collapse:separate;border-spacing:8px 0;">'
             f'<tr>'
-            f'<td style="vertical-align:top;padding:14px;background:#f0fff4;'
-            f'border:1px solid #9ae6b4;border-radius:6px;width:50%;">'
-            f'<strong style="color:#276749;display:block;margin-bottom:8px;">{lang["pros_label"]}</strong>'
-            f'<ul style="{p_side}:18px;margin:0;">{p_lis}</ul></td>'
-            f'<td style="vertical-align:top;padding:14px;background:#fff5f5;'
-            f'border:1px solid #feb2b2;border-radius:6px;width:50%;">'
-            f'<strong style="color:#9b2c2c;display:block;margin-bottom:8px;">{lang["cons_label"]}</strong>'
-            f'<ul style="{p_side}:18px;margin:0;">{c_lis}</ul></td>'
+            f'<td style="vertical-align:top;width:50%;padding:0;">'
+            f'{pro_header}'
+            f'<div style="background:#f0fff4;border:2px solid #1a5e38;border-top:none;'
+            f'border-radius:0 0 6px 6px;padding:14px 16px;">'
+            f'<ul style="{p_side}:16px;margin:0;">{p_lis}</ul></div></td>'
+            f'<td style="vertical-align:top;width:50%;padding:0;">'
+            f'{con_header}'
+            f'<div style="background:#fff5f5;border:2px solid #7b1a1a;border-top:none;'
+            f'border-radius:0 0 6px 6px;padding:14px 16px;">'
+            f'<ul style="{p_side}:16px;margin:0;">{c_lis}</ul></div></td>'
             f'</tr></table></div>'
         )
 
@@ -580,84 +616,78 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
     box_bg     = "#2d3748" if is_dark else bg
 
     # ✅ القالب الداكن: هوامش صفرية على الصفحة + padding داخلي على الـ body
-    page_margin  = "0"        if is_dark else "2.5cm"
-    body_padding = "2.5cm"    if is_dark else "0"
+    # باقي القوالب: هوامش صغيرة جداً ليكون الإطار قريباً من الحافة
+    page_margin  = "0"          if is_dark else "1cm"
+    body_padding = "1.5cm"      if is_dark else "0"
 
     # ══════════════════════════════════════════════
-    # إطار مخصص لكل قالب
+    # إطار مخصص لكل قالب — يمتد قريباً من حواف الصفحة
     # ══════════════════════════════════════════════
     if template_name == "classic":
-        # إطار مزدوج كلاسيكي
+        # إطار مزدوج كلاسيكي بحواف ضيقة
         frame_style = (
-            f"border: 3px double {p};"
+            f"border: 4px double {p};"
             f"outline: 1px solid {a};"
-            f"outline-offset: -8px;"
-            f"padding: 22px;"
-            f"margin-bottom: 18px;"
+            f"outline-offset: -10px;"
+            f"padding: 28px 26px;"
+            f"min-height: calc(100% - 4px);"
         )
         frame_open  = f'<div style="{frame_style}">'
         frame_close = '</div>'
 
     elif template_name == "modern":
-        # إطار بتدرج لوني على اليسار واليمين
         frame_style = (
-            f"border-top: 4px solid {a};"
-            f"border-bottom: 4px solid {a};"
-            f"border-{('right' if is_rtl else 'left')}: 6px solid {p};"
+            f"border-top: 5px solid {a};"
+            f"border-bottom: 5px solid {a};"
+            f"border-{('right' if is_rtl else 'left')}: 7px solid {p};"
             f"border-{('left' if is_rtl else 'right')}: 2px solid {a};"
-            f"padding: 22px;"
-            f"margin-bottom: 18px;"
-            f"box-shadow: 0 4px 16px rgba(90,103,216,0.10);"
+            f"padding: 28px 26px;"
+            f"box-shadow: 0 4px 20px rgba(90,103,216,0.12);"
         )
         frame_open  = f'<div style="{frame_style}">'
         frame_close = '</div>'
 
     elif template_name == "minimal":
-        # إطار بسيط رفيع من الأعلى فقط مع خط سفلي
         frame_style = (
-            f"border-top: 2px solid {p};"
+            f"border-top: 3px solid {p};"
             f"border-bottom: 1px solid #cbd5e0;"
-            f"padding: 20px 4px;"
-            f"margin-bottom: 18px;"
+            f"border-{('right' if is_rtl else 'left')}: 1px solid #e2e8f0;"
+            f"border-{('left' if is_rtl else 'right')}: 1px solid #e2e8f0;"
+            f"padding: 28px 26px;"
         )
         frame_open  = f'<div style="{frame_style}">'
         frame_close = '</div>'
 
     elif template_name == "professional":
-        # شريط علوي سميك + شريط سفلي + حدود جانبية رفيعة
         frame_style = (
             f"border: 1px solid {a};"
-            f"border-top: 6px solid {p};"
-            f"border-bottom: 6px solid {p};"
-            f"padding: 22px;"
-            f"margin-bottom: 18px;"
+            f"border-top: 8px solid {p};"
+            f"border-bottom: 8px solid {p};"
+            f"padding: 28px 26px;"
         )
         frame_open  = f'<div style="{frame_style}">'
         frame_close = '</div>'
 
     elif template_name == "dark_elegant":
-        # إطار ذهبي مع زوايا مزخرفة بـ CSS
         frame_style = (
             f"border: 2px solid {a};"
-            f"padding: 22px;"
-            f"margin-bottom: 18px;"
+            f"padding: 28px 26px;"
             f"position: relative;"
-            f"box-shadow: 0 0 18px rgba(212,175,55,0.18), inset 0 0 10px rgba(212,175,55,0.06);"
+            f"box-shadow: 0 0 22px rgba(212,175,55,0.22), inset 0 0 12px rgba(212,175,55,0.07);"
         )
-        # زوايا ذهبية مزخرفة بـ pseudo-elements عبر span
         corner_css = (
-            f"position:absolute;width:18px;height:18px;"
+            f"position:absolute;width:22px;height:22px;"
             f"border-color:{a};border-style:solid;"
         )
         corners = (
-            f'<span style="{corner_css}top:-2px;{("right" if is_rtl else "left")}:-2px;'
-            f'border-width:3px 0 0 3px;"></span>'
-            f'<span style="{corner_css}top:-2px;{("left" if is_rtl else "right")}:-2px;'
-            f'border-width:3px 3px 0 0;"></span>'
-            f'<span style="{corner_css}bottom:-2px;{("right" if is_rtl else "left")}:-2px;'
-            f'border-width:0 0 3px 3px;"></span>'
-            f'<span style="{corner_css}bottom:-2px;{("left" if is_rtl else "right")}:-2px;'
-            f'border-width:0 3px 3px 0;"></span>'
+            f'<span style="{corner_css}top:-3px;{("right" if is_rtl else "left")}:-3px;'
+            f'border-width:4px 0 0 4px;"></span>'
+            f'<span style="{corner_css}top:-3px;{("left" if is_rtl else "right")}:-3px;'
+            f'border-width:4px 4px 0 0;"></span>'
+            f'<span style="{corner_css}bottom:-3px;{("right" if is_rtl else "left")}:-3px;'
+            f'border-width:0 0 4px 4px;"></span>'
+            f'<span style="{corner_css}bottom:-3px;{("left" if is_rtl else "right")}:-3px;'
+            f'border-width:0 4px 4px 0;"></span>'
         )
         frame_open  = f'<div style="{frame_style}">{corners}'
         frame_close = '</div>'
