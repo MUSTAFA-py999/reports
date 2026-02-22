@@ -217,9 +217,9 @@ TEMPLATES = {
 }
 
 DEPTH_OPTIONS = {
-    "short":    {"name": "📝 مختصر ",  "blocks": 3, "words": "300_450"},
-    "medium":   {"name": "📄 متوسط ",  "blocks": 4, "words": "460_580"},
-    "detailed": {"name": "📚 مفصل ",   "blocks": 5, "words": "600_650"},
+    "short":    {"name": "📝 مختصر (2 صفحات)",   "pages": 2,   "blocks_min": 3, "blocks_max": 4},
+    "medium":   {"name": "📄 متوسط (3-4 صفحات)", "pages": 3,   "blocks_min": 4, "blocks_max": 6},
+    "detailed": {"name": "📚 مفصل (5+ صفحات)",   "pages": 5,   "blocks_min": 6, "blocks_max": 9},
 }
 
 # رسائل التوجيه لكل حالة عندما يرسل المستخدم نصاً بدل استخدام الأزرار
@@ -289,8 +289,9 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
 ══════════════════════════════════════
 TOPIC: {topic}
 LANGUAGE: {lang["instruction"]}
-DEPTH: Exactly {d["blocks"]} content blocks.
 {title_instruction}
+TARGET LENGTH: approximately {d["pages"]} A4 pages when printed.
+SECTIONS: between {d["blocks_min"]} and {d["blocks_max"]} content blocks — choose whatever number fills the target pages naturally.
 ══════════════════════════════════════
 
 STUDENT'S REQUIREMENTS:
@@ -299,42 +300,38 @@ STUDENT'S REQUIREMENTS:
 ══════════════════════════════════════
 BLOCK TYPES:
 - "paragraph"     → "text": flowing prose (use \\n to break mid-thought and start fresh line — varies rhythm)
-- "bullets"       → "items": 4-6 items. Each item can contain a sub-note using " — " like: "Main point — short clarifying detail here"
-- "numbered_list" → "items": 4-6 steps. Same sub-note style allowed.
-- "table"         → "headers" + "rows" (4-5 rows)
-- "pros_cons"     → "pros" + "cons" (3-5 each). Sub-notes allowed with " — "
-- "comparison"    → "side_a", "side_b", "criteria", "side_a_values", "side_b_values"
-- "stats"         → "items": "Label: value — brief context" (4-5 items)
-- "examples"      → "items": 4-5 real examples with " — " sub-note
-- "quote"         → "text": a sharp definition or key insight
+- "bullets"       → "items": 5-8 items. Each item can contain a sub-note using " — " like: "Main point — short clarifying detail here"
+- "numbered_list" → "items": 5-8 steps. Same sub-note style allowed.
+- "table"         → "headers" + "rows" (5-7 rows, must stay on one page — keep concise)
+- "pros_cons"     → "pros" + "cons" (4-6 each). Sub-notes allowed with " — "
+- "comparison"    → "side_a", "side_b", "criteria", "side_a_values", "side_b_values" (5-7 criteria)
+- "stats"         → "items": "Label: value — brief context" (5-7 items)
+- "examples"      → "items": 5-7 real examples with " — " sub-note
+- "quote"         → "text": a sharp definition or key insight (2-4 sentences)
 
 ══════════════════════════════════════
 WRITING STYLE — CRITICAL RULES:
 
-1. INTRODUCTION: 2-3 sentences only. Direct. No "يُعدّ هذا الموضوع من أهم..." filler.
+1. INTRODUCTION: 3-4 sentences. Direct, engaging. No "يُعدّ هذا الموضوع من أهم..." filler.
 
-2. SUB-BULLETS: Actively use " — " inside bullet/numbered/pros_cons items to embed short inline notes.
-   Example: "الذكاء الاصطناعي التوليدي — يشمل النماذج اللغوية الكبيرة وأدوات إنشاء الصور"
+2. CONTENT DENSITY: Each paragraph block must be 120-200 words. Each bullet/list block: 5-8 items with sub-notes.
+   Fill pages naturally — do NOT pad with repetition.
 
-3. LINE BREAKS FOR RHYTHM: In paragraph "text" fields, use \\n to end a thought mid-line and start the next on a new line.
-   This creates breathing room and avoids walls of text. Use 2-4 breaks per paragraph block.
+3. SUB-BULLETS: Actively use " — " inside bullet/numbered/pros_cons items to embed short inline notes.
 
-4. HUMAN WRITING PATTERNS — avoid AI tells:
+4. LINE BREAKS FOR RHYTHM: In paragraph "text" fields, use \\n to end a thought and start fresh.
+   Use 3-5 breaks per paragraph block.
+
+5. HUMAN WRITING PATTERNS — avoid AI tells:
    • Vary sentence length: mix short punchy sentences with longer analytical ones
    • NO formulaic openers like "يتناول هذا التقرير..." or "In this report, we will..."
    • NO symmetrical lists where every bullet is exactly the same length
-   • Use occasional rhetorical questions or direct statements mid-section
-   • Conclusions should feel like a genuine takeaway, not a summary of what was just said
-   • Avoid starting every paragraph with the section title rephrased
+   • Conclusions: genuine takeaway — not a summary of what was just said
 
-5. BLOCK SELECTION: match content to block type naturally:
-   • Comparisons → "comparison" or "pros_cons"
-   • Processes → "numbered_list"
-   • Data/numbers → "stats" or "table"
-   • Analysis/opinion → "paragraph" with line breaks
-   • Feature lists → "bullets" with sub-notes
+6. BLOCK SELECTION: match content to type naturally.
+   Use diverse block types — avoid repeating the same type back-to-back more than twice.
 
-6. ALL text in specified language. conclusion is MANDATORY.
+7. ALL text in specified language. conclusion is MANDATORY (3-5 sentences).
 
 {format_instructions}"""
 
@@ -586,6 +583,89 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
     page_margin  = "0"        if is_dark else "2.5cm"
     body_padding = "2.5cm"    if is_dark else "0"
 
+    # ══════════════════════════════════════════════
+    # إطار مخصص لكل قالب
+    # ══════════════════════════════════════════════
+    if template_name == "classic":
+        # إطار مزدوج كلاسيكي
+        frame_style = (
+            f"border: 3px double {p};"
+            f"outline: 1px solid {a};"
+            f"outline-offset: -8px;"
+            f"padding: 22px;"
+            f"margin-bottom: 18px;"
+        )
+        frame_open  = f'<div style="{frame_style}">'
+        frame_close = '</div>'
+
+    elif template_name == "modern":
+        # إطار بتدرج لوني على اليسار واليمين
+        frame_style = (
+            f"border-top: 4px solid {a};"
+            f"border-bottom: 4px solid {a};"
+            f"border-{('right' if is_rtl else 'left')}: 6px solid {p};"
+            f"border-{('left' if is_rtl else 'right')}: 2px solid {a};"
+            f"padding: 22px;"
+            f"margin-bottom: 18px;"
+            f"box-shadow: 0 4px 16px rgba(90,103,216,0.10);"
+        )
+        frame_open  = f'<div style="{frame_style}">'
+        frame_close = '</div>'
+
+    elif template_name == "minimal":
+        # إطار بسيط رفيع من الأعلى فقط مع خط سفلي
+        frame_style = (
+            f"border-top: 2px solid {p};"
+            f"border-bottom: 1px solid #cbd5e0;"
+            f"padding: 20px 4px;"
+            f"margin-bottom: 18px;"
+        )
+        frame_open  = f'<div style="{frame_style}">'
+        frame_close = '</div>'
+
+    elif template_name == "professional":
+        # شريط علوي سميك + شريط سفلي + حدود جانبية رفيعة
+        frame_style = (
+            f"border: 1px solid {a};"
+            f"border-top: 6px solid {p};"
+            f"border-bottom: 6px solid {p};"
+            f"padding: 22px;"
+            f"margin-bottom: 18px;"
+        )
+        frame_open  = f'<div style="{frame_style}">'
+        frame_close = '</div>'
+
+    elif template_name == "dark_elegant":
+        # إطار ذهبي مع زوايا مزخرفة بـ CSS
+        frame_style = (
+            f"border: 2px solid {a};"
+            f"padding: 22px;"
+            f"margin-bottom: 18px;"
+            f"position: relative;"
+            f"box-shadow: 0 0 18px rgba(212,175,55,0.18), inset 0 0 10px rgba(212,175,55,0.06);"
+        )
+        # زوايا ذهبية مزخرفة بـ pseudo-elements عبر span
+        corner_css = (
+            f"position:absolute;width:18px;height:18px;"
+            f"border-color:{a};border-style:solid;"
+        )
+        corners = (
+            f'<span style="{corner_css}top:-2px;{("right" if is_rtl else "left")}:-2px;'
+            f'border-width:3px 0 0 3px;"></span>'
+            f'<span style="{corner_css}top:-2px;{("left" if is_rtl else "right")}:-2px;'
+            f'border-width:3px 3px 0 0;"></span>'
+            f'<span style="{corner_css}bottom:-2px;{("right" if is_rtl else "left")}:-2px;'
+            f'border-width:0 0 3px 3px;"></span>'
+            f'<span style="{corner_css}bottom:-2px;{("left" if is_rtl else "right")}:-2px;'
+            f'border-width:0 3px 3px 0;"></span>'
+        )
+        frame_open  = f'<div style="{frame_style}">{corners}'
+        frame_close = '</div>'
+
+    else:
+        frame_open  = ''
+        frame_close = ''
+
     blocks_html = "\n".join(render_block(bl, tc, lang) for bl in report.blocks)
 
     return f"""<!DOCTYPE html>
@@ -608,6 +688,8 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
 </style>
 </head>
 <body>
+
+{frame_open}
 
 <h1 style="text-align:center;color:{p};font-size:24px;font-weight:bold;
            padding-bottom:14px;margin-bottom:28px;
@@ -632,6 +714,8 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
   </h2>
   {text_to_paras(report.conclusion, align)}
 </div>
+
+{frame_close}
 
 </body>
 </html>"""
@@ -1012,5 +1096,3 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
-
-
