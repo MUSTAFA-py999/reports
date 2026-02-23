@@ -242,7 +242,7 @@ def get_llm():
         raise Exception("GOOGLE_API_KEY not set")
     return ChatGoogleGenerativeAI(
         # ✅ FIX 1: اسم النموذج الصحيح
-        model="gemini-2.5-flash",
+        model="gemini-3-flash",
         temperature=0.5,
         google_api_key=api_key,
         max_retries=3
@@ -311,22 +311,24 @@ BLOCK TYPES:
 
 ══════════════════════════════════════
 CONTENT BALANCE — MANDATORY:
-For every table or comparison block, you MUST include at least 2 paragraph or bullets blocks nearby.
-Maximum 2 table/comparison blocks per report regardless of length.
-Block distribution for {d["pages"]} pages should roughly be:
-  • 40% paragraph blocks (analytical prose)
+Block distribution MUST follow this ratio:
+  • 45% paragraph blocks (analytical prose) — الأكثرية
   • 35% bullets/numbered/pros_cons (structured lists)
-  • 25% table/stats/comparison/examples (visual data)
+  • 20% table/stats/comparison/examples (visual data — max 2 total)
+
+TABLE RULE: Maximum 2 table/comparison/stats blocks per report.
+For every table block, surround it with at least 2 paragraph blocks.
 
 PAGE FILLING — CRITICAL:
 You MUST write enough content to fill {d["pages"]} A4 pages.
 Each page ≈ 500 words. Total ≈ {d["pages"] * 500} words.
-If you are short on content, ADD MORE paragraph blocks with deeper analysis — do NOT add more tables.
-Never pad with repetition — add genuine depth, examples, and analysis.
+NEVER leave a page partially empty — if a section is short, expand it deeply.
+Every page must be substantially full. No orphaned short sections.
+If short on content: ADD MORE paragraph blocks with deeper analysis — NOT more tables.
 
 WRITING STYLE:
 1. INTRODUCTION: 4-6 sentences. Engaging, sets context, raises a question or problem.
-2. PARAGRAPH BLOCKS: 180-280 words each. Vary sentence length. Use \\n 4-6 times.
+2. PARAGRAPH BLOCKS: 200-300 words each. Vary sentence length. Use \\n 4-6 times.
 3. LIST ITEMS: never all the same length — mix short and long items deliberately.
 4. NO AI openers: never start with "يتناول هذا التقرير" / "In this report we will" / "هذا الموضوع مهم".
 5. CONCLUSION: 5-7 sentences. Genuine insight or forward-looking statement — not a summary.
@@ -441,7 +443,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             else:
                 rows += f'<tr><td colspan="2" style="padding:8px 12px;border:1px solid #ddd;">{esc(item)}</td></tr>'
         return (
-            f'<div style="margin:18px 0;">{h2}'
+            f'<div class="block-stats" style="margin:18px 0;page-break-inside:avoid;">{h2}'
             f'<table style="width:100%;border-collapse:collapse;font-size:13px;">{rows}</table>'
             f'</div>'
         )
@@ -549,7 +551,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             )
             rows += f"<tr>{tds}</tr>"
         return (
-            f'<div style="margin:18px 0;page-break-inside:avoid;">{h2}'
+            f'<div class="block-table" style="margin:18px 0;page-break-inside:avoid;">{h2}'
             f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
             f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table>'
             f'</div>'
@@ -579,7 +581,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 f'</tr>'
             )
         return (
-            f'<div style="margin:18px 0;page-break-inside:avoid;">{h2}'
+            f'<div class="block-comparison" style="margin:18px 0;page-break-inside:avoid;">{h2}'
             f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
             f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table>'
             f'</div>'
@@ -615,86 +617,57 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
     body_color = "#e2e8f0" if is_dark else "#333333"
     box_bg     = "#2d3748" if is_dark else bg
 
-    # ✅ القالب الداكن: هوامش صفرية على الصفحة + padding داخلي على الـ body
-    # باقي القوالب: هوامش صغيرة جداً ليكون الإطار قريباً من الحافة
-    page_margin  = "0"          if is_dark else "1cm"
-    body_padding = "1.5cm"      if is_dark else "0"
-
-    # ══════════════════════════════════════════════
-    # إطار مخصص لكل قالب — يمتد قريباً من حواف الصفحة
-    # ══════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════
+    # الإطار عبر @page — مستطيل كامل على كل صفحة تلقائياً
+    # كل قالب له نمط إطار مختلف عبر border في @page
+    # ══════════════════════════════════════════════════════
     if template_name == "classic":
-        # إطار مزدوج كلاسيكي بحواف ضيقة
-        frame_style = (
-            f"border: 4px double {p};"
-            f"outline: 1px solid {a};"
-            f"outline-offset: -10px;"
-            f"padding: 28px 26px;"
-            f"min-height: calc(100% - 4px);"
-        )
-        frame_open  = f'<div style="{frame_style}">'
-        frame_close = '</div>'
+        # مزدوج داكن مع خط داخلي
+        page_border       = f"3px double {p}"
+        page_margin_outer = "0.35cm"
+        page_padding      = "0.7cm"
+        extra_page_css    = f"outline: 1px solid {a}; outline-offset: -6px;"
 
     elif template_name == "modern":
-        frame_style = (
-            f"border-top: 5px solid {a};"
-            f"border-bottom: 5px solid {a};"
-            f"border-{('right' if is_rtl else 'left')}: 7px solid {p};"
-            f"border-{('left' if is_rtl else 'right')}: 2px solid {a};"
-            f"padding: 28px 26px;"
-            f"box-shadow: 0 4px 20px rgba(90,103,216,0.12);"
-        )
-        frame_open  = f'<div style="{frame_style}">'
-        frame_close = '</div>'
+        page_border       = f"4px solid {a}"
+        page_margin_outer = "0.35cm"
+        page_padding      = "0.7cm"
+        extra_page_css    = ""
 
     elif template_name == "minimal":
-        frame_style = (
-            f"border-top: 3px solid {p};"
-            f"border-bottom: 1px solid #cbd5e0;"
-            f"border-{('right' if is_rtl else 'left')}: 1px solid #e2e8f0;"
-            f"border-{('left' if is_rtl else 'right')}: 1px solid #e2e8f0;"
-            f"padding: 28px 26px;"
-        )
-        frame_open  = f'<div style="{frame_style}">'
-        frame_close = '</div>'
+        page_border       = f"1.5px solid {p}"
+        page_margin_outer = "0.4cm"
+        page_padding      = "0.7cm"
+        extra_page_css    = ""
 
     elif template_name == "professional":
-        frame_style = (
-            f"border: 1px solid {a};"
-            f"border-top: 8px solid {p};"
-            f"border-bottom: 8px solid {p};"
-            f"padding: 28px 26px;"
-        )
-        frame_open  = f'<div style="{frame_style}">'
-        frame_close = '</div>'
+        page_border       = f"1px solid {a}"
+        page_margin_outer = "0.35cm"
+        page_padding      = "0.7cm"
+        # شريط علوي وسفلي سميك عبر wrapper div
+        extra_page_css    = ""
 
     elif template_name == "dark_elegant":
-        frame_style = (
-            f"border: 2px solid {a};"
-            f"padding: 28px 26px;"
-            f"position: relative;"
-            f"box-shadow: 0 0 22px rgba(212,175,55,0.22), inset 0 0 12px rgba(212,175,55,0.07);"
-        )
-        corner_css = (
-            f"position:absolute;width:22px;height:22px;"
-            f"border-color:{a};border-style:solid;"
-        )
-        corners = (
-            f'<span style="{corner_css}top:-3px;{("right" if is_rtl else "left")}:-3px;'
-            f'border-width:4px 0 0 4px;"></span>'
-            f'<span style="{corner_css}top:-3px;{("left" if is_rtl else "right")}:-3px;'
-            f'border-width:4px 4px 0 0;"></span>'
-            f'<span style="{corner_css}bottom:-3px;{("right" if is_rtl else "left")}:-3px;'
-            f'border-width:0 0 4px 4px;"></span>'
-            f'<span style="{corner_css}bottom:-3px;{("left" if is_rtl else "right")}:-3px;'
-            f'border-width:0 4px 4px 0;"></span>'
-        )
-        frame_open  = f'<div style="{frame_style}">{corners}'
-        frame_close = '</div>'
+        page_border       = f"2px solid {a}"
+        page_margin_outer = "0.35cm"
+        page_padding      = "0.7cm"
+        extra_page_css    = ""
 
     else:
-        frame_open  = ''
-        frame_close = ''
+        page_border       = "none"
+        page_margin_outer = "2cm"
+        page_padding      = "0cm"
+        extra_page_css    = ""
+
+    # شريط احترافي علوي/سفلي عبر div داخلي
+    prof_top = (
+        f'<div style="height:7px;background:{p};margin:-{page_padding} -{page_padding} 20px -{page_padding};"></div>'
+        if template_name == "professional" else ""
+    )
+    prof_bot = (
+        f'<div style="height:7px;background:{p};margin:20px -{page_padding} -{page_padding} -{page_padding};"></div>'
+        if template_name == "professional" else ""
+    )
 
     blocks_html = "\n".join(render_block(bl, tc, lang) for bl in report.blocks)
 
@@ -703,7 +676,14 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
 <head>
 <meta charset="UTF-8">
 <style>
-  @page {{ size: A4; margin: {page_margin}; background: {page_bg}; }}
+  @page {{
+    size: A4;
+    margin: {page_margin_outer};
+    border: {page_border};
+    padding: {page_padding};
+    background: {page_bg};
+    {extra_page_css}
+  }}
   * {{ box-sizing: border-box; }}
   body {{
     font-family: {font};
@@ -713,13 +693,21 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
     color: {body_color};
     background: {page_bg};
     font-size: 14px;
-    margin: 0; padding: {body_padding};
+    margin: 0; padding: 0;
   }}
+  /* منع الصفحات الفارغة جزئياً */
+  p, li {{ orphans: 4; widows: 4; }}
+  div {{ orphans: 3; widows: 3; }}
+  /* منع انقسام الجداول بين الصفحات */
+  table {{ page-break-inside: avoid; }}
+  .block-table, .block-comparison, .block-stats {{ page-break-inside: avoid; }}
+  /* تجنب بقاء عنوان وحده في نهاية صفحة */
+  h2 {{ page-break-after: avoid; }}
 </style>
 </head>
 <body>
 
-{frame_open}
+{prof_top}
 
 <h1 style="text-align:center;color:{p};font-size:24px;font-weight:bold;
            padding-bottom:14px;margin-bottom:28px;
@@ -745,7 +733,7 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
   {text_to_paras(report.conclusion, align)}
 </div>
 
-{frame_close}
+{prof_bot}
 
 </body>
 </html>"""
