@@ -242,7 +242,7 @@ def get_llm():
         raise Exception("GOOGLE_API_KEY not set")
     return ChatGoogleGenerativeAI(
         # ✅ FIX 1: اسم النموذج الصحيح
-        model="gemini-3-flash",
+        model="gemini-3-flash-preview",
         temperature=0.5,
         google_api_key=api_key,
         max_retries=3
@@ -1114,3 +1114,4 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
+
