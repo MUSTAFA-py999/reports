@@ -209,7 +209,7 @@ LANGUAGES = {
 }
 
 TEMPLATES = {
-    "classic":      {"name": "🎓 كلاسيكي",   "primary": "#2c3e50", "accent": "#3498db", "bg": "#ecf0f1", "bg2": "#f8f9fa"},
+    "emerald":      {"name": "🌿 زمردي",     "primary": "#1a4731", "accent": "#52b788", "bg": "#f0faf4", "bg2": "#ffffff"},
     "modern":       {"name": "🚀 عصري",      "primary": "#5a67d8", "accent": "#667eea", "bg": "#ebf4ff", "bg2": "#ffffff"},
     "minimal":      {"name": "⚪ بسيط",      "primary": "#2d3748", "accent": "#718096", "bg": "#f7fafc", "bg2": "#ffffff"},
     "professional": {"name": "💼 احترافي",   "primary": "#1a365d", "accent": "#2b6cb0", "bg": "#bee3f8", "bg2": "#f0f4ff"},
@@ -303,7 +303,7 @@ BLOCK TYPES:
 - "bullets"       → "items": 6-9 items. Each item MUST have a sub-note: "Main point — detailed explanation of 10-20 words"
 - "numbered_list" → "items": 6-9 steps. Same sub-note style required.
 - "table"         → "headers" + "rows" (5-8 rows, must fit one page — keep cells concise)
-- "pros_cons"     → "pros" 5-7 items + "cons" 5-7 items. Each item MUST have " — " sub-note.
+- "pros_cons"     → "pros" 4-5 items + "cons" 4-5 items (KEEP SHORT — must fit on ONE page). Each item MUST have " — " sub-note. After pros_cons, if space remains on that page, add a paragraph block to fill it.
 - "comparison"    → "side_a", "side_b", "criteria"(6-8), "side_a_values", "side_b_values"
 - "stats"         → "items": "Label: value — 15-25 word context explanation" (6-8 items)
 - "examples"      → "items": 6-8 concrete examples, each with " — " explanation
@@ -477,13 +477,13 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             if sep in str(x):
                 parts = str(x).split(sep, 1)
                 return (
-                    f'<li style="margin-bottom:10px;line-height:1.85;font-size:13.5px;">'
+                    f'<li style="margin-bottom:7px;line-height:1.7;font-size:13px;">'
                     f'<span style="font-weight:700;color:#1a5e38;">{esc(parts[0].strip())}</span>'
-                    f'<br><span style="color:#2d6a4f;font-size:12.5px;padding-{("right" if is_rtl else "left")}:4px;">'
+                    f'<br><span style="color:#2d6a4f;font-size:12px;padding-{("right" if is_rtl else "left")}:4px;">'
                     f'↳ {esc(parts[1].strip())}</span></li>'
                 )
             return (
-                f'<li style="margin-bottom:10px;line-height:1.85;font-size:13.5px;">'
+                f'<li style="margin-bottom:7px;line-height:1.7;font-size:13px;">'
                 f'<span style="font-weight:700;color:#1a5e38;">{esc(x)}</span></li>'
             )
 
@@ -492,13 +492,13 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             if sep in str(x):
                 parts = str(x).split(sep, 1)
                 return (
-                    f'<li style="margin-bottom:10px;line-height:1.85;font-size:13.5px;">'
+                    f'<li style="margin-bottom:7px;line-height:1.7;font-size:13px;">'
                     f'<span style="font-weight:700;color:#7b1a1a;">{esc(parts[0].strip())}</span>'
-                    f'<br><span style="color:#922b21;font-size:12.5px;padding-{("right" if is_rtl else "left")}:4px;">'
+                    f'<br><span style="color:#922b21;font-size:12px;padding-{("right" if is_rtl else "left")}:4px;">'
                     f'↳ {esc(parts[1].strip())}</span></li>'
                 )
             return (
-                f'<li style="margin-bottom:10px;line-height:1.85;font-size:13.5px;">'
+                f'<li style="margin-bottom:7px;line-height:1.7;font-size:13px;">'
                 f'<span style="font-weight:700;color:#7b1a1a;">{esc(x)}</span></li>'
             )
 
@@ -517,19 +517,19 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         )
 
         return (
-            f'<div style="margin:18px 0;">{h2}'
-            f'<table style="width:100%;border-collapse:separate;border-spacing:8px 0;">'
+            f'<div style="margin:18px 0;page-break-inside:avoid;">{h2}'
+            f'<table style="width:100%;border-collapse:separate;border-spacing:8px 0;page-break-inside:avoid;">'
             f'<tr>'
             f'<td style="vertical-align:top;width:50%;padding:0;">'
             f'{pro_header}'
             f'<div style="background:#f0fff4;border:2px solid #1a5e38;border-top:none;'
-            f'border-radius:0 0 6px 6px;padding:14px 16px;">'
-            f'<ul style="{p_side}:16px;margin:0;">{p_lis}</ul></div></td>'
+            f'border-radius:0 0 6px 6px;padding:10px 14px;">'
+            f'<ul style="{p_side}:14px;margin:0;">{p_lis}</ul></div></td>'
             f'<td style="vertical-align:top;width:50%;padding:0;">'
             f'{con_header}'
             f'<div style="background:#fff5f5;border:2px solid #7b1a1a;border-top:none;'
-            f'border-radius:0 0 6px 6px;padding:14px 16px;">'
-            f'<ul style="{p_side}:16px;margin:0;">{c_lis}</ul></div></td>'
+            f'border-radius:0 0 6px 6px;padding:10px 14px;">'
+            f'<ul style="{p_side}:14px;margin:0;">{c_lis}</ul></div></td>'
             f'</tr></table></div>'
         )
 
@@ -614,19 +614,18 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
     b_side  = "border-right" if is_rtl else "border-left"
     is_dark = (template_name == "dark_elegant")
     page_bg    = "#1a202c" if is_dark else "#ffffff"
-    body_color = "#e2e8f0" if is_dark else "#333333"
+    body_color = "#e2e8f0" if is_dark else "#2d3436"
     box_bg     = "#2d3748" if is_dark else bg
 
     # ══════════════════════════════════════════════════════
     # الإطار عبر @page — مستطيل كامل على كل صفحة تلقائياً
-    # كل قالب له نمط إطار مختلف عبر border في @page
     # ══════════════════════════════════════════════════════
-    if template_name == "classic":
-        # مزدوج داكن مع خط داخلي
-        page_border       = f"3px double {p}"
+    if template_name == "emerald":
+        # إطار زمردي مزدوج مع خط داخلي ذهبي رفيع
+        page_border       = f"3px solid {p}"
         page_margin_outer = "0.35cm"
         page_padding      = "0.7cm"
-        extra_page_css    = f"outline: 1px solid {a}; outline-offset: -6px;"
+        extra_page_css    = f"outline: 1.5px solid {a}; outline-offset: -7px;"
 
     elif template_name == "modern":
         page_border       = f"4px solid {a}"
@@ -1114,5 +1113,3 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
-
-
