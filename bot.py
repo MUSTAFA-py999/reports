@@ -42,9 +42,9 @@ def run_flask():
 # QUEUE SYSTEM
 # ═══════════════════════════════════════════════════
 report_queue: asyncio.Queue = None
-active_jobs = {}          # user_id → True  (currently generating)
-queue_positions = {}      # user_id → position in queue
-MAX_CONCURRENT = 2        # عدد التقارير التي تُعالج في نفس الوقت
+active_jobs = {}
+queue_positions = {}
+MAX_CONCURRENT = 2
 
 
 async def queue_worker(app):
@@ -53,23 +53,20 @@ async def queue_worker(app):
     async def process_one(user_id, session, msg_id):
         async with semaphore:
             active_jobs[user_id] = True
-            # Update queue positions for waiting users
             for uid in list(queue_positions.keys()):
                 if queue_positions[uid] > 0:
                     queue_positions[uid] -= 1
 
             try:
                 loop = asyncio.get_event_loop()
-                pdf_bytes, title = await loop.run_in_executor(
-                    None, generate_report, session
-                )
+                pdf_bytes, title = await loop.run_in_executor(None, generate_report, session)
 
-                lang      = session.get("language", "ar")
-                lang_name = LANGUAGES[lang]["name"]
-                depth     = session.get("depth", "medium")
+                lang       = session.get("language", "ar")
+                lang_name  = LANGUAGES[lang]["name"]
+                depth      = session.get("depth", "medium")
                 depth_name = DEPTH_OPTIONS[depth]["name"]
-                tpl       = session.get("template", "classic")
-                tpl_name  = TEMPLATES[tpl]["name"]
+                tpl        = session.get("template", "classic")
+                tpl_name   = TEMPLATES[tpl]["name"]
 
                 if pdf_bytes:
                     safe_name  = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:40])
@@ -126,8 +123,7 @@ class SmartQuestions(BaseModel):
     questions: List[str] = Field(
         description=(
             "List of open-ended questions (between 2 and 5, based on topic complexity) "
-            "to ask the student about their report. Decide the number based on how much "
-            "clarification the topic needs."
+            "to ask the student about their report."
         )
     )
 
@@ -157,7 +153,7 @@ class DynamicReport(BaseModel):
     title: str = Field(description="Report title")
     introduction: str = Field(description="Introduction: 3-5 sentences. Direct and engaging.")
     blocks: List[ReportBlock] = Field(description="Content blocks")
-    conclusion: str = Field(description="Conclusion: 4-6 sentences. Genuine insight — not a summary. MANDATORY.")
+    conclusion: str = Field(description="Conclusion: 4-6 sentences. Genuine insight. MANDATORY.")
 
 
 # ═══════════════════════════════════════════════════
@@ -195,7 +191,6 @@ LANGUAGES = {
         "pros_label": "✅ Pros",
         "cons_label": "❌ Cons",
         "instruction": "Write ALL content in English. Every word must be English.",
-        # ✅ الأسئلة دائماً بالعربية حتى للتقارير الإنجليزية
         "q_prompt": (
             "أنت مساعد أكاديمي لطلاب الجامعة.\n"
             "الطالب يريد تقريراً إنجليزياً عن: \"{topic}\".\n\n"
@@ -209,12 +204,16 @@ LANGUAGES = {
     },
 }
 
+# ══════════════════════════════════════════════════════
+# TEMPLATES — القالب الجديد "royal" مضاف هنا
+# ══════════════════════════════════════════════════════
 TEMPLATES = {
     "emerald":      {"name": "🌿 زمردي",     "primary": "#1a4731", "accent": "#52b788", "bg": "#f0faf4", "bg2": "#ffffff"},
     "modern":       {"name": "🚀 عصري",      "primary": "#5a67d8", "accent": "#667eea", "bg": "#ebf4ff", "bg2": "#ffffff"},
     "minimal":      {"name": "⚪ بسيط",      "primary": "#2d3748", "accent": "#718096", "bg": "#f7fafc", "bg2": "#ffffff"},
     "professional": {"name": "💼 احترافي",   "primary": "#1a365d", "accent": "#2b6cb0", "bg": "#bee3f8", "bg2": "#f0f4ff"},
     "dark_elegant": {"name": "🖤 أنيق داكن", "primary": "#d4af37", "accent": "#f6d860", "bg": "#2d3748", "bg2": "#4a5568"},
+    "royal":        {"name": "👑 ملكي ذهبي", "primary": "#5b0e2d", "accent": "#c9a227", "bg": "#fdf6e3", "bg2": "#fff9f0"},
 }
 
 DEPTH_OPTIONS = {
@@ -223,7 +222,6 @@ DEPTH_OPTIONS = {
     "extended": {"name": "📖 موسّع (7+ صفحات)",   "pages": 8,  "blocks_min": 10, "blocks_max": 14},
 }
 
-# رسائل التوجيه لكل حالة عندما يرسل المستخدم نصاً بدل استخدام الأزرار
 STATE_GUIDANCE = {
     "choosing_lang":        "🌐 من فضلك <b>اختر اللغة</b> من الأزرار أعلاه.",
     "generating_questions": "⏳ جاري تحليل موضوعك وتوليد الأسئلة... انتظر قليلاً.",
@@ -242,7 +240,6 @@ def get_llm():
     if not api_key:
         raise Exception("GOOGLE_API_KEY not set")
     return ChatGoogleGenerativeAI(
-        # ✅ FIX 1: اسم النموذج الصحيح
         model="gemini-2.5-flash",
         temperature=0.5,
         google_api_key=api_key,
@@ -254,31 +251,26 @@ def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
     lang   = LANGUAGES[language_key]
     llm    = get_llm()
     parser = PydanticOutputParser(pydantic_object=SmartQuestions)
-    prompt = (
-        lang["q_prompt"].format(topic=topic)
-        + "\n\n"
-        + parser.get_format_instructions()
-    )
+    prompt = lang["q_prompt"].format(topic=topic) + "\n\n" + parser.get_format_instructions()
     result = llm.invoke([HumanMessage(content=prompt)])
     parsed = parser.parse(result.content)
-    # ✅ FIX 2: لا نقيّد الأسئلة بـ 3، بل نحترم ما يقرره النموذج (2-5)
     return parsed.questions[:5]
 
 
 def build_report_prompt(session: dict, format_instructions: str) -> str:
-    topic       = session["topic"]
-    lang_key    = session.get("language", "ar")
-    depth       = session.get("depth", "medium")
-    lang        = LANGUAGES[lang_key]
-    d           = DEPTH_OPTIONS[depth]
-    questions   = session.get("dynamic_questions", [])
-    answers     = session.get("answers", [])
+    topic        = session["topic"]
+    lang_key     = session.get("language", "ar")
+    depth        = session.get("depth", "medium")
+    lang         = LANGUAGES[lang_key]
+    d            = DEPTH_OPTIONS[depth]
+    questions    = session.get("dynamic_questions", [])
+    answers      = session.get("answers", [])
     custom_title = session.get("custom_title")
 
     title_instruction = (
         f'TITLE: Use EXACTLY this title: "{custom_title}" — do not change it.'
         if custom_title else
-        "TITLE: Generate a concise, academic title that fits the topic and student requirements."
+        "TITLE: Generate a concise, academic title that fits the topic."
     )
 
     qa_block = ""
@@ -291,7 +283,7 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
 TOPIC: {topic}
 LANGUAGE: {lang["instruction"]}
 {title_instruction}
-TARGET: {d["pages"]} A4 pages — approximately {d["pages"] * 420} words total.
+TARGET: {d["pages"]} A4 pages — approximately {d["pages"] * 400} words total.
 SECTIONS: {d["blocks_min"]} to {d["blocks_max"]} content blocks.
 ══════════════════════════════════════
 
@@ -300,48 +292,29 @@ STUDENT'S REQUIREMENTS:
 
 ══════════════════════════════════════
 BLOCK TYPES AND WORD COUNTS:
-- "paragraph"    → "text": 160-220 words. Natural line breaks using \\n (3-5 times). End some sentences MID-LINE deliberately.
-- "bullets"      → "items": 5-7 items. 40% have sub-note with " — ", 60% are standalone. Mix lengths — never uniform.
-- "numbered_list"→ "items": 5-7 steps. Same 40/60 sub-note rule.
-- "table"        → "headers" + "rows" (4-6 rows). Fits one page. Max 2 per report.
-- "pros_cons"    → "pros": 4-5 items, "cons": 4-5 items.
-                   Set "style" field to ONE of: "A", "B", "C", "D" — pick different style each report.
-                   Style A = two-column cards with colored header
-                   Style B = alternating green/red rows in single table
-                   Style C = stacked vertical sections (pros above, cons below)
-                   Style D = emoji list (✅/❌) in single flowing column
-                   PLACEMENT RULE: pros_cons must appear either:
-                   (a) after a full paragraph that fills the top of the page, OR
-                   (b) at the start of a page followed by a bullets/paragraph to fill remaining space.
-                   NEVER place pros_cons alone on a half-empty page.
-- "comparison"   → criteria: 5-6. Max 2 per report.
-- "stats"        → "items": 5-6. "Label: value — context" format.
-- "examples"     → "items": 5-6 with " — " detail on 60% only.
-- "quote"        → "text": 2-3 sentences. Sharp and direct.
+- "paragraph"     → "text": 150-200 words. Natural breaks using \\n (3-5 times).
+- "bullets"       → "items": 5-7 items. 40% have sub-note with " — ", 60% standalone.
+- "numbered_list" → "items": 5-7 steps. Same 40/60 rule.
+- "table"         → "headers" + "rows" (4-6 rows). Max 2 per report.
+- "pros_cons"     → "pros": 4-5, "cons": 4-5. Style: A/B/C/D. NEVER on half-empty page.
+- "comparison"    → criteria: 5-6. Max 2 per report.
+- "stats"         → "items": 5-6. "Label: value — context" format.
+- "examples"      → "items": 5-6 with " — " detail on 60% only.
+- "quote"         → "text": 2-3 sentences. Sharp and direct.
 
 ══════════════════════════════════════
-PAGE FILLING STRATEGY — CRITICAL:
-Total words needed: ~{d["pages"] * 420}. Font is large (15.5px) — text fills pages faster than expected.
-• After ANY block that is short (bullets, quote, pros_cons), the NEXT block must be a paragraph of 160-220 words.
-• Never have two consecutive short blocks — always alternate: short → long → short → long.
-• If you sense a page will be short, EXPAND the preceding paragraph — do NOT add another table/list.
-• pros_cons text is justified — items will naturally fill their column width.
+PAGE FILLING — CRITICAL (font is 16.5px — fills fast):
+• After ANY short block (bullets/quote/pros_cons) → NEXT must be paragraph 150-200 words.
+• Never two consecutive short blocks. Always: short → long → short → long.
+• If page feels short, EXPAND preceding paragraph. Do NOT add more tables/lists.
+• Content balance: 45% paragraphs | 35% bullets/lists | 20% tables/stats (max 2).
 
-CONTENT BALANCE:
-  • 45% paragraph blocks (most important)
-  • 35% bullets / numbered / pros_cons
-  • 20% table/stats/comparison/examples (max 2 total)
-
-══════════════════════════════════════
-HUMAN WRITING STYLE — MANDATORY:
-1. Vary sentence length aggressively: "قصيرة. ثم جملة أطول تشرح وتوسّع الفكرة بشكل كامل ومقنع."
-2. End sentences in the MIDDLE of a visual line — don't pad to reach line end.
-3. Start some paragraphs mid-thought or with a rhetorical question.
-4. List items: deliberately unequal lengths. Some 4 words, some 18 words.
-5. Conclusions: one strong unexpected angle or forward-looking statement. NOT a summary.
-6. NO formulaic openers: "يتناول" / "In this report" / "هذا الموضوع مهم" are FORBIDDEN.
-7. Paragraphs: start with strong claim, develop it, end with a twist or implication.
-8. Use \\n inside paragraph text to create natural visual breathing — not every sentence.
+HUMAN STYLE — MANDATORY:
+1. Vary sentence length aggressively.
+2. No formulaic openers: "يتناول" / "In this report" are FORBIDDEN.
+3. Paragraphs: strong claim → develop → twist/implication.
+4. Conclusions: unexpected forward-looking angle. NOT a summary.
+5. Use \\n inside paragraphs for natural breathing.
 
 ALL text in specified language. Conclusion MANDATORY.
 {format_instructions}"""
@@ -380,15 +353,12 @@ def esc(v):
     return html_lib.escape(str(v)) if v is not None else ""
 
 def render_item_with_subnote(item: str, txt_color: str, accent: str) -> str:
-    """Renders a list item, styling the sub-note after ' — ' in a muted smaller font."""
     sep = " — "
     if sep in str(item):
         parts = str(item).split(sep, 1)
-        main = esc(parts[0].strip())
-        note = esc(parts[1].strip())
         return (
-            f'{main}'
-            f'<span style="color:{accent};font-size:0.88em;font-weight:normal;"> — {note}</span>'
+            f'{esc(parts[0].strip())}'
+            f'<span style="color:{accent};font-size:0.88em;font-weight:normal;"> — {esc(parts[1].strip())}</span>'
         )
     return esc(item)
 
@@ -397,27 +367,27 @@ def text_to_paras(text: str, align: str) -> str:
     if not lines:
         lines = [str(text)]
     return "".join(
-        f'<p style="text-align:{align};margin:0 0 10px 0;line-height:1.95;">{esc(l)}</p>'
+        f'<p style="text-align:{align};margin:0 0 10px 0;line-height:2.05;">{esc(l)}</p>'
         for l in lines
     )
 
 def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
-    p   = tc["primary"]
-    a   = tc["accent"]
-    bg  = tc["bg"]
-    bg2 = tc["bg2"]
+    p      = tc["primary"]
+    a      = tc["accent"]
+    bg     = tc["bg"]
+    bg2    = tc["bg2"]
     align  = lang["align"]
     is_rtl = lang["dir"] == "rtl"
     b_side = "border-right" if is_rtl else "border-left"
     p_side = "padding-right" if is_rtl else "padding-left"
     is_dark   = tc["primary"] == "#d4af37"
-    txt_color = "#e2e8f0" if is_dark else "#333333"
+    txt_color = "#e2e8f0" if is_dark else "#2c1810" if tc.get("primary") == "#5b0e2d" else "#333333"
     h2_bg     = "#3d4a5c" if is_dark else bg
 
     h2 = (
-        f'<h2 style="color:{p};font-size:15px;font-weight:bold;'
+        f'<h2 style="color:{p};font-size:15.5px;font-weight:bold;'
         f'padding:10px 16px;background:{h2_bg};'
-        f'{b_side}:5px solid {a};margin:0 0 13px 0;color:{p};">'
+        f'{b_side}:5px solid {a};margin:0 0 13px 0;">'
         f'{esc(b.title)}</h2>'
     )
     bt = (b.block_type or "paragraph").strip().lower()
@@ -429,7 +399,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         items = b.items or []
         tag   = "ol" if bt == "numbered_list" else "ul"
         lis   = "".join(
-            f'<li style="margin-bottom:9px;line-height:1.85;color:{txt_color};">'
+            f'<li style="margin-bottom:10px;line-height:1.95;color:{txt_color};">'
             f'{render_item_with_subnote(i, txt_color, a)}</li>'
             for i in items
         )
@@ -443,19 +413,16 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             bg_r  = bg if idx % 2 == 0 else bg2
             if len(parts) == 2:
                 rows += (
-                    f'<tr>'
-                    f'<td style="font-weight:bold;color:{p};padding:8px 12px;'
-                    f'background:{bg};border:1px solid #ddd;width:36%;">{esc(parts[0].strip())}</td>'
-                    f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};'
-                    f'color:{txt_color};">{esc(parts[1].strip())}</td>'
-                    f'</tr>'
+                    f'<tr><td style="font-weight:bold;color:{p};padding:9px 12px;background:{bg};'
+                    f'border:1px solid #ddd;width:36%;">{esc(parts[0].strip())}</td>'
+                    f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};'
+                    f'color:{txt_color};">{esc(parts[1].strip())}</td></tr>'
                 )
             else:
-                rows += f'<tr><td colspan="2" style="padding:8px 12px;border:1px solid #ddd;">{esc(item)}</td></tr>'
+                rows += f'<tr><td colspan="2" style="padding:9px 12px;border:1px solid #ddd;">{esc(item)}</td></tr>'
         return (
             f'<div class="block-stats" style="margin:18px 0;page-break-inside:avoid;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">{rows}</table>'
-            f'</div>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:14px;">{rows}</table></div>'
         )
 
     elif bt == "examples":
@@ -464,18 +431,14 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         for idx, item in enumerate(items, 1):
             bg_r = bg if idx % 2 == 1 else bg2
             rows += (
-                f'<tr>'
-                f'<td style="width:28px;text-align:center;font-weight:bold;color:#fff;'
-                f'background:{a};padding:8px;border:1px solid #ddd;">{idx}</td>'
-                f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};'
-                f'line-height:1.85;color:{txt_color};">'
-                f'{render_item_with_subnote(item, txt_color, a)}</td>'
-                f'</tr>'
+                f'<tr><td style="width:28px;text-align:center;font-weight:bold;color:#fff;'
+                f'background:{a};padding:9px;border:1px solid #ddd;">{idx}</td>'
+                f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};'
+                f'line-height:1.95;color:{txt_color};">{render_item_with_subnote(item, txt_color, a)}</td></tr>'
             )
         return (
             f'<div style="margin:18px 0;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">{rows}</table>'
-            f'</div>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:14px;">{rows}</table></div>'
         )
 
     elif bt == "pros_cons":
@@ -488,25 +451,24 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             if sep in str(x):
                 pts = str(x).split(sep, 1)
                 return (
-                    f'<li style="margin-bottom:7px;line-height:1.75;font-size:13.5px;">'
+                    f'<li style="margin-bottom:8px;line-height:1.85;font-size:14px;">'
                     f'<span style="font-weight:700;color:#1a5e38;">{esc(pts[0].strip())}</span>'
-                    f'<br><span style="color:#2d6a4f;font-size:12.5px;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
+                    f'<br><span style="color:#2d6a4f;font-size:13px;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
                 )
-            return f'<li style="margin-bottom:7px;line-height:1.75;font-size:13.5px;font-weight:600;color:#1a5e38;">{esc(x)}</li>'
+            return f'<li style="margin-bottom:8px;line-height:1.85;font-size:14px;font-weight:600;color:#1a5e38;">{esc(x)}</li>'
 
         def con_item_full(x):
             sep = " — "
             if sep in str(x):
                 pts = str(x).split(sep, 1)
                 return (
-                    f'<li style="margin-bottom:7px;line-height:1.75;font-size:13.5px;">'
+                    f'<li style="margin-bottom:8px;line-height:1.85;font-size:14px;">'
                     f'<span style="font-weight:700;color:#7b1a1a;">{esc(pts[0].strip())}</span>'
-                    f'<br><span style="color:#922b21;font-size:12.5px;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
+                    f'<br><span style="color:#922b21;font-size:13px;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
                 )
-            return f'<li style="margin-bottom:7px;line-height:1.75;font-size:13.5px;font-weight:600;color:#7b1a1a;">{esc(x)}</li>'
+            return f'<li style="margin-bottom:8px;line-height:1.85;font-size:14px;font-weight:600;color:#7b1a1a;">{esc(x)}</li>'
 
         if style == "A":
-            # ── Style A: بطاقتان جانبيتان مع رأس ملوّن ──
             p_lis = "".join(pro_item_full(x) for x in pros)
             c_lis = "".join(con_item_full(x) for x in cons)
             pro_hdr = (
@@ -518,15 +480,12 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 f'padding:9px 16px;border-radius:6px 6px 0 0;">{lang["cons_label"]}</div>'
             )
             inner = (
-                f'<table style="width:100%;border-collapse:separate;border-spacing:8px 0;">'
-                f'<tr>'
-                f'<td style="vertical-align:top;width:50%;padding:0;">'
-                f'{pro_hdr}'
+                f'<table style="width:100%;border-collapse:separate;border-spacing:8px 0;"><tr>'
+                f'<td style="vertical-align:top;width:50%;padding:0;">{pro_hdr}'
                 f'<div style="background:#f0fff4;border:2px solid #1a5e38;border-top:none;'
                 f'border-radius:0 0 6px 6px;padding:10px 14px;">'
                 f'<ul style="{p_side}:14px;margin:0;">{p_lis}</ul></div></td>'
-                f'<td style="vertical-align:top;width:50%;padding:0;">'
-                f'{con_hdr}'
+                f'<td style="vertical-align:top;width:50%;padding:0;">{con_hdr}'
                 f'<div style="background:#fff5f5;border:2px solid #7b1a1a;border-top:none;'
                 f'border-radius:0 0 6px 6px;padding:10px 14px;">'
                 f'<ul style="{p_side}:14px;margin:0;">{c_lis}</ul></div></td>'
@@ -534,42 +493,38 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             )
 
         elif style == "B":
-            # ── Style B: صفوف متناوبة خضراء/حمراء في جدول واحد ──
             rows_html = ""
             all_items = [("+", x) for x in pros] + [("-", x) for x in cons]
             for sign, item in all_items:
-                is_pro = sign == "+"
+                is_pro   = sign == "+"
                 row_bg   = "#f0fff4" if is_pro else "#fff5f5"
                 dot_bg   = "#1a5e38" if is_pro else "#7b1a1a"
                 dot_char = "✓" if is_pro else "✗"
                 sep = " — "
                 if sep in str(item):
-                    pts = str(item).split(sep, 1)
+                    pts  = str(item).split(sep, 1)
                     cell = (
                         f'<span style="font-weight:700;">{esc(pts[0].strip())}</span>'
-                        f'<span style="color:#555;font-size:12.5px;"> — {esc(pts[1].strip())}</span>'
+                        f'<span style="color:#555;font-size:13px;"> — {esc(pts[1].strip())}</span>'
                     )
                 else:
                     cell = f'<span style="font-weight:600;">{esc(item)}</span>'
                 rows_html += (
                     f'<tr style="background:{row_bg};">'
                     f'<td style="width:32px;text-align:center;font-weight:800;color:{dot_bg};'
-                    f'font-size:16px;padding:9px 6px;border-bottom:1px solid #e8f0e8;">{dot_char}</td>'
-                    f'<td style="padding:9px 12px;border-bottom:1px solid #e8e8e8;'
-                    f'font-size:13.5px;line-height:1.7;">{cell}</td>'
-                    f'</tr>'
+                    f'font-size:17px;padding:10px 6px;border-bottom:1px solid #e8e8e8;">{dot_char}</td>'
+                    f'<td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;'
+                    f'font-size:14px;line-height:1.8;">{cell}</td></tr>'
                 )
             inner = (
-                f'<table style="width:100%;border-collapse:collapse;'
-                f'border:1px solid #d0d0d0;border-radius:6px;overflow:hidden;">'
+                f'<table style="width:100%;border-collapse:collapse;border:1px solid #d0d0d0;">'
                 f'<thead><tr>'
-                f'<th style="background:#2d3748;color:#fff;padding:9px 6px;width:32px;font-size:13px;">±</th>'
-                f'<th style="background:#2d3748;color:#fff;padding:9px 14px;text-align:{align};font-size:13px;">التفاصيل</th>'
+                f'<th style="background:#2d3748;color:#fff;padding:9px 6px;width:32px;font-size:14px;">±</th>'
+                f'<th style="background:#2d3748;color:#fff;padding:9px 14px;text-align:{align};font-size:14px;">التفاصيل</th>'
                 f'</tr></thead><tbody>{rows_html}</tbody></table>'
             )
 
         elif style == "C":
-            # ── Style C: قسمان مكدّسان عموديًا (pros أعلى، cons أسفل) ──
             p_lis = "".join(pro_item_full(x) for x in pros)
             c_lis = "".join(con_item_full(x) for x in cons)
             inner = (
@@ -586,7 +541,6 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             )
 
         else:  # Style D
-            # ── Style D: قائمة نصية واحدة بإيموجي ✅/❌ أسلوب إنساني ──
             items_html = ""
             for x in pros:
                 sep = " — "
@@ -596,9 +550,9 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 else:
                     text_part = f'<b>{esc(x)}</b>'
                 items_html += (
-                    f'<div style="display:flex;gap:10px;margin-bottom:9px;align-items:flex-start;">'
-                    f'<span style="font-size:16px;flex-shrink:0;">✅</span>'
-                    f'<span style="font-size:13.5px;line-height:1.75;">{text_part}</span></div>'
+                    f'<div style="display:flex;gap:10px;margin-bottom:10px;align-items:flex-start;">'
+                    f'<span style="font-size:17px;flex-shrink:0;">✅</span>'
+                    f'<span style="font-size:14px;line-height:1.85;">{text_part}</span></div>'
                 )
             for x in cons:
                 sep = " — "
@@ -608,13 +562,13 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 else:
                     text_part = f'<b>{esc(x)}</b>'
                 items_html += (
-                    f'<div style="display:flex;gap:10px;margin-bottom:9px;align-items:flex-start;">'
-                    f'<span style="font-size:16px;flex-shrink:0;">❌</span>'
-                    f'<span style="font-size:13.5px;line-height:1.75;">{text_part}</span></div>'
+                    f'<div style="display:flex;gap:10px;margin-bottom:10px;align-items:flex-start;">'
+                    f'<span style="font-size:17px;flex-shrink:0;">❌</span>'
+                    f'<span style="font-size:14px;line-height:1.85;">{text_part}</span></div>'
                 )
             inner = (
-                f'<div style="background:{bg};border:{b_side.split("-")[1]}:3px solid {a};'
-                f'padding:14px 18px;border-radius:6px;">{items_html}</div>'
+                f'<div style="background:{bg};{b_side.split("-")[1] if "-" in b_side else "left"}:'
+                f'3px solid {a};padding:14px 18px;border-radius:6px;">{items_html}</div>'
             )
 
         return f'<div style="margin:18px 0;">{h2}{inner}</div>'
@@ -623,24 +577,21 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         headers   = b.headers or []
         rows_data = b.rows or []
         ths = "".join(
-            f'<th style="background:{p};color:#fff;padding:9px 12px;'
-            f'text-align:{align};font-weight:bold;">{esc(h)}</th>'
+            f'<th style="background:{p};color:#fff;padding:10px 12px;text-align:{align};font-weight:bold;">{esc(h)}</th>'
             for h in headers
         )
         rows = ""
         for ridx, row in enumerate(rows_data):
             bg_r = bg if ridx % 2 == 0 else bg2
             tds  = "".join(
-                f'<td style="padding:8px 12px;border:1px solid #ddd;'
-                f'background:{bg_r};color:{txt_color};">{esc(c)}</td>'
+                f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};color:{txt_color};">{esc(c)}</td>'
                 for c in row
             )
             rows += f"<tr>{tds}</tr>"
         return (
             f'<div class="block-table" style="margin:18px 0;page-break-inside:avoid;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
-            f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table>'
-            f'</div>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:14px;">'
+            f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table></div>'
         )
 
     elif bt == "comparison":
@@ -650,9 +601,9 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         av  = b.side_a_values or []
         bv  = b.side_b_values or []
         ths = (
-            f'<th style="background:{p};color:#fff;padding:9px 12px;">المعيار</th>'
-            f'<th style="background:{p};color:#fff;padding:9px 12px;">{sa}</th>'
-            f'<th style="background:{p};color:#fff;padding:9px 12px;">{sb}</th>'
+            f'<th style="background:{p};color:#fff;padding:10px 12px;">المعيار</th>'
+            f'<th style="background:{p};color:#fff;padding:10px 12px;">{sa}</th>'
+            f'<th style="background:{p};color:#fff;padding:10px 12px;">{sb}</th>'
         )
         rows = ""
         for idx, crit in enumerate(cr):
@@ -660,17 +611,14 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             bv_val = esc(bv[idx]) if idx < len(bv) else "-"
             bg_r   = bg if idx % 2 == 0 else bg2
             rows += (
-                f'<tr>'
-                f'<td style="font-weight:bold;color:{p};padding:8px 12px;border:1px solid #ddd;background:{bg};">{esc(crit)}</td>'
-                f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};">{av_val}</td>'
-                f'<td style="padding:8px 12px;border:1px solid #ddd;background:{bg_r};">{bv_val}</td>'
-                f'</tr>'
+                f'<tr><td style="font-weight:bold;color:{p};padding:9px 12px;border:1px solid #ddd;background:{bg};">{esc(crit)}</td>'
+                f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};">{av_val}</td>'
+                f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};">{bv_val}</td></tr>'
             )
         return (
             f'<div class="block-comparison" style="margin:18px 0;page-break-inside:avoid;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
-            f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table>'
-            f'</div>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:14px;">'
+            f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table></div>'
         )
 
     elif bt == "quote":
@@ -679,7 +627,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         return (
             f'<div style="margin:18px 0;">{h2}'
             f'<blockquote style="{bd}:5px solid {a};{pd}:16px;margin:0;'
-            f'color:#555;font-style:italic;line-height:1.9;">'
+            f'color:#555;font-style:italic;line-height:2.0;">'
             f'{esc(b.text or "")}</blockquote></div>'
         )
 
@@ -687,6 +635,9 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         return f'<div style="margin:18px 0;">{h2}{text_to_paras(b.text or "", align)}</div>'
 
 
+# ══════════════════════════════════════════════════════
+# MAIN HTML RENDERER
+# ══════════════════════════════════════════════════════
 def render_html(report: DynamicReport, template_name: str, language_key: str) -> str:
     tc   = TEMPLATES[template_name]
     lang = LANGUAGES[language_key]
@@ -699,77 +650,108 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
     is_rtl  = dir_ == "rtl"
     b_side  = "border-right" if is_rtl else "border-left"
     is_dark = (template_name == "dark_elegant")
-    page_bg    = "#1a202c" if is_dark else "#ffffff"
-    body_color = "#e2e8f0" if is_dark else "#2d3436"
-    box_bg     = "#2d3748" if is_dark else bg
 
-    # ══════════════════════════════════════════════════════
-    # الإطار عبر @page — مستطيل كامل على كل صفحة تلقائياً
-    # ══════════════════════════════════════════════════════
+    # ── خلفيات وألوان حسب القالب ──
+    if template_name == "dark_elegant":
+        page_bg    = "#1a202c"
+        body_color = "#e2e8f0"
+        box_bg     = "#2d3748"
+    elif template_name == "royal":
+        page_bg    = "#fffdf7"
+        body_color = "#2c1810"
+        box_bg     = "#fdf6e3"
+    else:
+        page_bg    = "#ffffff"
+        body_color = "#2d3436"
+        box_bg     = bg
+
+    # ── إطار الصفحة حسب القالب ──
     if template_name == "emerald":
-        # إطار زمردي مزدوج مع خط داخلي ذهبي رفيع
-        page_border       = f"3px solid {p}"
-        page_margin_outer = "0.35cm"
-        page_padding      = "0.7cm"
-        extra_page_css    = f"outline: 1.5px solid {a}; outline-offset: -7px;"
+        page_border    = f"3px solid {p}"
+        page_margin    = "0.35cm"
+        page_padding   = "0.7cm"
+        extra_page_css = f"outline: 1.5px solid {a}; outline-offset: -7px;"
 
     elif template_name == "modern":
-        page_border       = f"4px solid {a}"
-        page_margin_outer = "0.35cm"
-        page_padding      = "0.7cm"
-        extra_page_css    = ""
+        page_border    = f"4px solid {a}"
+        page_margin    = "0.35cm"
+        page_padding   = "0.7cm"
+        extra_page_css = ""
 
     elif template_name == "minimal":
-        page_border       = f"1.5px solid {p}"
-        page_margin_outer = "0.4cm"
-        page_padding      = "0.7cm"
-        extra_page_css    = ""
+        page_border    = f"1.5px solid {p}"
+        page_margin    = "0.4cm"
+        page_padding   = "0.7cm"
+        extra_page_css = ""
 
     elif template_name == "professional":
-        # إطار رسمي مزدوج: خط خارجي سميك + خط داخلي رفيع
-        page_border       = f"2px solid {p}"
-        page_margin_outer = "0.35cm"
-        page_padding      = "0.65cm"
-        extra_page_css    = f"outline: 4px solid {p}; outline-offset: -10px;"
+        page_border    = f"2px solid {p}"
+        page_margin    = "0.35cm"
+        page_padding   = "0.65cm"
+        extra_page_css = f"outline: 4px solid {p}; outline-offset: -10px;"
 
     elif template_name == "dark_elegant":
-        page_border       = f"2px solid {a}"
-        page_margin_outer = "0.35cm"
-        page_padding      = "0.7cm"
-        extra_page_css    = ""
+        page_border    = f"2px solid {a}"
+        page_margin    = "0.35cm"
+        page_padding   = "0.7cm"
+        extra_page_css = ""
+
+    elif template_name == "royal":
+        # إطار مزدوج: بورغندي خارجي + ذهبي داخلي
+        page_border    = f"3px solid {p}"
+        page_margin    = "0.35cm"
+        page_padding   = "0.7cm"
+        extra_page_css = f"outline: 2px solid {a}; outline-offset: -8px;"
 
     else:
-        page_border       = "none"
-        page_margin_outer = "2cm"
-        page_padding      = "0cm"
-        extra_page_css    = ""
+        page_border    = "none"
+        page_margin    = "2cm"
+        page_padding   = "0cm"
+        extra_page_css = ""
 
-    # شريط احترافي رسمي: رأس يتضمن خطين وشعار
+    # ── ترويسة وتذييل خاصة ──
     if template_name == "professional":
         prof_top = (
             f'<div style="margin-bottom:24px;">'
             f'<div style="height:5px;background:{p};"></div>'
             f'<div style="height:2px;background:{a};margin-top:3px;"></div>'
-            f'<div style="display:flex;justify-content:space-between;align-items:center;'
-            f'padding:8px 4px 6px 4px;">'
-            f'<span style="font-size:11px;color:{a};font-weight:700;letter-spacing:2px;text-transform:uppercase;">تقرير أكاديمي رسمي</span>'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px 6px 4px;">'
+            f'<span style="font-size:11px;color:{a};font-weight:700;letter-spacing:2px;">تقرير أكاديمي رسمي</span>'
             f'<span style="font-size:10px;color:#8b9bb4;letter-spacing:1px;">OFFICIAL ACADEMIC REPORT</span>'
-            f'</div>'
-            f'<div style="height:1px;background:#d0dae8;"></div>'
-            f'</div>'
+            f'</div><div style="height:1px;background:#d0dae8;"></div></div>'
         )
         prof_bot = (
             f'<div style="margin-top:24px;">'
             f'<div style="height:1px;background:#d0dae8;"></div>'
-            f'<div style="display:flex;justify-content:space-between;align-items:center;'
-            f'padding:6px 4px 6px 4px;">'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;">'
             f'<span style="font-size:10px;color:#8b9bb4;">سري — للاستخدام الأكاديمي فقط</span>'
             f'<span style="font-size:10px;color:#8b9bb4;">Confidential — Academic Use Only</span>'
             f'</div>'
             f'<div style="height:2px;background:{a};"></div>'
-            f'<div style="height:5px;background:{p};margin-top:3px;"></div>'
+            f'<div style="height:5px;background:{p};margin-top:3px;"></div></div>'
+        )
+
+    elif template_name == "royal":
+        # ترويسة ملكية ذهبية مع زخرفة
+        prof_top = (
+            f'<div style="margin-bottom:22px;text-align:center;">'
+            f'<div style="height:4px;background:linear-gradient(to {"left" if is_rtl else "right"},{p},{a},{p});border-radius:2px;"></div>'
+            f'<div style="padding:8px 4px 5px 4px;">'
+            f'<span style="font-size:12px;color:{a};font-weight:700;letter-spacing:3px;">✦ تقرير أكاديمي جامعي ✦</span>'
+            f'</div>'
+            f'<div style="height:1px;background:{a};opacity:0.35;"></div>'
             f'</div>'
         )
+        prof_bot = (
+            f'<div style="margin-top:22px;text-align:center;">'
+            f'<div style="height:1px;background:{a};opacity:0.35;"></div>'
+            f'<div style="padding:6px 4px;">'
+            f'<span style="font-size:11px;color:{a};letter-spacing:2px;">✦ إعداد أكاديمي رسمي — جميع الحقوق محفوظة ✦</span>'
+            f'</div>'
+            f'<div style="height:4px;background:linear-gradient(to {"left" if is_rtl else "right"},{p},{a},{p});border-radius:2px;"></div>'
+            f'</div>'
+        )
+
     else:
         prof_top = ""
         prof_bot = ""
@@ -783,7 +765,7 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
 <style>
   @page {{
     size: A4;
-    margin: {page_margin_outer};
+    margin: {page_margin};
     border: {page_border};
     padding: {page_padding};
     background: {page_bg};
@@ -794,24 +776,21 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
     font-family: {font};
     direction: {dir_};
     text-align: justify;
-    line-height: 2.0;
+    line-height: 2.05;
     color: {body_color};
     background: {page_bg};
-    font-size: 15.5px;
+    font-size: 16.5px;
     margin: 0; padding: 0;
     word-spacing: 0.05em;
   }}
-  p {{ text-align: justify; margin: 0 0 8px 0; }}
-  h1 {{ font-size: 22px !important; text-align: center; }}
-  h2 {{ font-size: 15px !important; text-align: {align}; }}
+  p  {{ text-align: justify; margin: 0 0 9px 0; }}
+  h1 {{ font-size: 24px !important; text-align: center; }}
+  h2 {{ font-size: 15.5px !important; text-align: {align}; }}
   li {{ text-align: {align}; }}
-  /* orphans/widows منخفضة = كسر طبيعي = صفحات ممتلئة */
   p, li {{ orphans: 2; widows: 2; }}
-  /* منع انقسام الجداول الفعلية فقط */
-  .block-table  {{ page-break-inside: avoid; }}
-  .block-stats  {{ page-break-inside: avoid; }}
+  .block-table      {{ page-break-inside: avoid; }}
+  .block-stats      {{ page-break-inside: avoid; }}
   .block-comparison {{ page-break-inside: avoid; }}
-  /* تجنب بقاء h2 وحده في نهاية صفحة */
   h2 {{ page-break-after: avoid; orphans: 3; widows: 3; }}
 </style>
 </head>
@@ -819,15 +798,14 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
 
 {prof_top}
 
-<h1 style="text-align:center;color:{p};font-size:24px;font-weight:bold;
-           padding-bottom:14px;margin-bottom:28px;
-           border-bottom:3px solid {a};">
+<h1 style="text-align:center;color:{p};font-size:25px;font-weight:bold;
+           padding-bottom:14px;margin-bottom:28px;border-bottom:3px solid {a};">
   {esc(report.title)}
 </h1>
 
 <div style="background:{box_bg};padding:18px 22px;border-radius:8px;
             margin:0 0 20px 0;{b_side}:5px solid {a};">
-  <h2 style="color:{p};font-size:15px;font-weight:bold;margin:0 0 10px 0;">
+  <h2 style="color:{p};font-size:15.5px;font-weight:bold;margin:0 0 10px 0;">
     📚 {lang['intro_label']}
   </h2>
   {text_to_paras(report.introduction, align)}
@@ -837,7 +815,7 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
 
 <div style="background:{box_bg};padding:18px 22px;border-radius:8px;
             margin:20px 0 0 0;{b_side}:5px solid {a};">
-  <h2 style="color:{p};font-size:15px;font-weight:bold;margin:0 0 10px 0;">
+  <h2 style="color:{p};font-size:15.5px;font-weight:bold;margin:0 0 10px 0;">
     🎯 {lang['conclusion_label']}
   </h2>
   {text_to_paras(report.conclusion, align)}
@@ -897,30 +875,19 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # نمسح الجلسة القديمة عند /start
     user_sessions.pop(user_id, None)
-
     name = update.effective_user.first_name
-    msg = f"""
-🎓 <b>مرحباً {name}!</b>
-
-أنا <b>بوت التقارير الجامعية الذكي</b> 🤖
-
-✨ <b>كيف يعمل البوت؟</b>
-1️⃣ أرسل موضوع تقريرك
-2️⃣ اختر اللغة
-3️⃣ أجب على <b>أسئلة ذكية</b> مخصصة لموضوعك
-4️⃣ اختر العمق والتصميم
-5️⃣ احصل على تقريرك PDF احترافي 🎉
-
-🧠 <b>ذكاء البوت:</b>
-• يولّد أسئلة مخصصة لكل موضوع
-• يبني الهيكل بناءً على إجاباتك
-• يختار جداول ومقارنات ونقاط تلقائياً
-• موجّه خصيصاً لطلاب الجامعة
-
-🚀 <b>أرسل موضوع تقريرك الآن!</b>
-"""
+    msg = (
+        f"🎓 <b>مرحباً {name}!</b>\n\n"
+        "أنا <b>بوت التقارير الجامعية الذكي</b> 🤖\n\n"
+        "✨ <b>كيف يعمل البوت؟</b>\n"
+        "1️⃣ أرسل موضوع تقريرك\n"
+        "2️⃣ اختر اللغة\n"
+        "3️⃣ أجب على <b>أسئلة ذكية</b> مخصصة لموضوعك\n"
+        "4️⃣ اختر العمق والتصميم\n"
+        "5️⃣ احصل على تقريرك PDF احترافي 🎉\n\n"
+        "🚀 <b>أرسل موضوع تقريرك الآن!</b>"
+    )
     await update.message.reply_text(msg, parse_mode='HTML')
 
 
@@ -928,66 +895,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text    = update.message.text.strip()
 
-    # ══════════════════════════════════════════════════════════
-    # القاعدة الذهبية: إذا كان المستخدم في جلسة نشطة بأي حالة،
-    # لا نُنشئ جلسة جديدة أبداً — نُعالج بناءً على الحالة فقط
-    # ══════════════════════════════════════════════════════════
     if user_id in user_sessions:
         session = user_sessions[user_id]
         state   = session.get("state", "")
 
-        # حالة استقبال الإجابات
         if state == "answering":
             answers   = session.setdefault("answers", [])
             questions = session.get("dynamic_questions", [])
             answers.append(text)
-
             if len(answers) < len(questions):
-                # عرض السؤال التالي
                 next_q = questions[len(answers)]
                 q_num  = len(answers) + 1
                 total  = len(questions)
                 await update.message.reply_text(
                     f"✅ تم تسجيل إجابتك.\n\n"
-                    f"❓ <b>السؤال {q_num}/{total}:</b>\n{next_q}\n\n"
-                    f"<i>اكتب إجابتك 👇</i>",
+                    f"❓ <b>السؤال {q_num}/{total}:</b>\n{next_q}\n\n<i>اكتب إجابتك 👇</i>",
                     parse_mode='HTML'
                 )
             else:
-                # انتهت الأسئلة → سؤال العنوان
                 session["state"] = "choosing_title"
                 await update.message.reply_text(
                     "✅ <b>ممتاز! تم تسجيل جميع إجاباتك.</b>\n\n"
                     "📌 <b>هل تريد تحديد عنوان للتقرير؟</b>\n"
-                    "<i>اكتب العنوان الذي تريده، أو اضغط الزر أسفله لتركه للذكاء الاصطناعي.</i>",
+                    "<i>اكتب العنوان، أو اضغط الزر أسفله لتركه للذكاء الاصطناعي.</i>",
                     reply_markup=title_keyboard(),
                     parse_mode='HTML'
                 )
             return
 
-        # حالة كتابة عنوان مخصص
         if state == "choosing_title":
             session["custom_title"] = text
             session["state"] = "choosing_depth"
             await update.message.reply_text(
-                f"✅ <b>العنوان:</b> <i>{esc(text)}</i>\n\n"
-                "📏 <b>اختر عمق التقرير:</b>",
+                f"✅ <b>العنوان:</b> <i>{esc(text)}</i>\n\n📏 <b>اختر عمق التقرير:</b>",
                 reply_markup=depth_keyboard(),
                 parse_mode='HTML'
             )
             return
 
-        # أي حالة أخرى (يجب على المستخدم استخدام الأزرار)
-        guidance = STATE_GUIDANCE.get(
-            state,
-            "⏳ جاري معالجة طلبك... انتظر أو أرسل /cancel للبدء من جديد."
-        )
+        guidance = STATE_GUIDANCE.get(state, "⏳ جاري معالجة طلبك... انتظر أو أرسل /cancel للبدء من جديد.")
         await update.message.reply_text(guidance, parse_mode='HTML')
-        return  # ← لا نكمل للأسفل أبداً طالما توجد جلسة
+        return
 
-    # ══════════════════════════════════════════════════════════
-    # لا يوجد جلسة → موضوع جديد
-    # ══════════════════════════════════════════════════════════
     if len(text) < 5:
         await update.message.reply_text("❌ الموضوع قصير جداً. أرسل موضوعاً أوضح.")
         return
@@ -997,7 +946,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_sessions[user_id] = {"topic": text, "state": "choosing_lang"}
     safe = text.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
-
     await update.message.reply_text(
         f"📝 <b>الموضوع:</b> <i>{safe}</i>\n\n🌐 <b>اختر لغة التقرير:</b>",
         reply_markup=lang_keyboard(),
@@ -1006,7 +954,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def title_auto_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User chose to let AI generate the title."""
     query   = update.callback_query
     await query.answer()
     user_id = query.from_user.id
@@ -1020,11 +967,10 @@ async def title_auto_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
 
-    session.pop("custom_title", None)   # بدون عنوان مخصص = الذكاء يولّده
+    session.pop("custom_title", None)
     session["state"] = "choosing_depth"
     await query.edit_message_text(
-        "🤖 <b>سيقوم الذكاء الاصطناعي باختيار العنوان المناسب.</b>\n\n"
-        "📏 <b>اختر عمق التقرير:</b>",
+        "🤖 <b>سيقوم الذكاء الاصطناعي باختيار العنوان المناسب.</b>\n\n📏 <b>اختر عمق التقرير:</b>",
         reply_markup=depth_keyboard(),
         parse_mode='HTML'
     )
@@ -1045,43 +991,33 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["state"]    = "generating_questions"
 
     await query.edit_message_text(
-        f"✅ <b>اللغة:</b> {LANGUAGES[lang]['name']}\n\n"
-        f"⏳ <i>جاري تحليل موضوعك وتوليد الأسئلة المناسبة...</i>",
+        f"✅ <b>اللغة:</b> {LANGUAGES[lang]['name']}\n\n⏳ <i>جاري تحليل موضوعك وتوليد الأسئلة المناسبة...</i>",
         parse_mode='HTML'
     )
 
     try:
         loop      = asyncio.get_event_loop()
-        topic     = session["topic"]
-        questions = await loop.run_in_executor(
-            None, generate_dynamic_questions, topic, lang
-        )
+        questions = await loop.run_in_executor(None, generate_dynamic_questions, session["topic"], lang)
 
         if not questions:
             raise ValueError("لم يتم توليد أي أسئلة")
 
         session["dynamic_questions"] = questions
         session["state"]             = "answering"
-
-        first_q   = questions[0]
-        total_q   = len(questions)
-        q_word    = "سؤال" if total_q == 1 else "أسئلة"
-
-        hint = (
+        total_q = len(questions)
+        q_word  = "سؤال" if total_q == 1 else "أسئلة"
+        hint    = (
             "\n\n💡 <i>تلميح: يمكنك طلب جداول، قوائم مزايا/عيوب، "
             "أو نقاط فرعية داخل الأقسام الكبيرة في إجاباتك.</i>"
         )
-
         await query.edit_message_text(
             f"🧠 <b>لدي {total_q} {q_word} قبل إنشاء تقريرك:</b>{hint}\n\n"
-            f"❓ <b>السؤال 1/{total_q}:</b>\n{first_q}\n\n"
-            f"<i>اكتب إجابتك 👇</i>",
+            f"❓ <b>السؤال 1/{total_q}:</b>\n{questions[0]}\n\n<i>اكتب إجابتك 👇</i>",
             parse_mode='HTML'
         )
 
     except Exception as e:
         logger.error(f"Question generation failed: {e}", exc_info=True)
-        # Fallback: تخطى الأسئلة والذهاب للعمق مباشرة
         session["dynamic_questions"] = []
         session["answers"]           = []
         session["state"]             = "choosing_depth"
@@ -1101,16 +1037,12 @@ async def depth_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_sessions:
         await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
         return
-
-    # ✅ تحقق أن المستخدم في الحالة الصحيحة
-    state = user_sessions[user_id].get("state")
-    if state != "choosing_depth":
+    if user_sessions[user_id].get("state") != "choosing_depth":
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
 
     user_sessions[user_id]["depth"] = depth
     user_sessions[user_id]["state"] = "choosing_template"
-
     await query.edit_message_text(
         f"✅ <b>العمق:</b> {DEPTH_OPTIONS[depth]['name']}\n\n🎨 <b>اختر تصميم التقرير:</b>",
         reply_markup=template_keyboard(),
@@ -1127,10 +1059,7 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_sessions:
         await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
         return
-
-    # ✅ تحقق أن المستخدم في الحالة الصحيحة
-    state = user_sessions[user_id].get("state")
-    if state != "choosing_template":
+    if user_sessions[user_id].get("state") != "choosing_template":
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
 
@@ -1138,34 +1067,20 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["template"] = tpl
     session["state"]    = "in_queue"
 
-    topic      = session["topic"]
-    lang       = session.get("language", "ar")
-    depth      = session.get("depth", "medium")
-    lang_name  = LANGUAGES[lang]["name"]
-    depth_name = DEPTH_OPTIONS[depth]["name"]
+    lang_name  = LANGUAGES[session.get("language", "ar")]["name"]
+    depth_name = DEPTH_OPTIONS[session.get("depth", "medium")]["name"]
     tpl_name   = TEMPLATES[tpl]["name"]
+    safe_topic = session["topic"].replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
 
-    # Queue position
     pos = report_queue.qsize() + 1
     queue_positions[user_id] = pos
-    safe = topic.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
-
-    if pos == 1:
-        status_msg = "🔄 <b>تقريرك قيد الإنشاء الآن...</b>"
-    else:
-        status_msg = f"⏳ <b>أنت في الطابور — الترتيب {pos}</b>\nسيُنشأ تقريرك قريباً..."
-
-    # ✅ FIX 5: استخدام message_id من query.message مباشرة وهو أكثر موثوقية
-    msg_id = query.message.message_id
+    status_msg = "🔄 <b>تقريرك قيد الإنشاء الآن...</b>" if pos == 1 else f"⏳ <b>أنت في الطابور — الترتيب {pos}</b>\nسيُنشأ تقريرك قريباً..."
 
     await query.edit_message_text(
-        f"{status_msg}\n\n"
-        f"📝 <b>الموضوع:</b> <i>{safe}</i>\n"
-        f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}",
+        f"{status_msg}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}",
         parse_mode='HTML'
     )
-
-    await report_queue.put((user_id, session.copy(), msg_id))
+    await report_queue.put((user_id, session.copy(), query.message.message_id))
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1204,21 +1119,19 @@ if __name__ == '__main__':
             .post_init(post_init)
             .build()
         )
-
         app.add_handler(CommandHandler('start', start))
         app.add_handler(CommandHandler('cancel', cancel))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        app.add_handler(CallbackQueryHandler(title_auto_callback,    pattern=r'^title_auto$'))
-        app.add_handler(CallbackQueryHandler(language_callback, pattern=r'^lang_'))
-        app.add_handler(CallbackQueryHandler(depth_callback,    pattern=r'^depth_'))
-        app.add_handler(CallbackQueryHandler(template_callback, pattern=r'^tpl_'))
+        app.add_handler(CallbackQueryHandler(title_auto_callback, pattern=r'^title_auto$'))
+        app.add_handler(CallbackQueryHandler(language_callback,   pattern=r'^lang_'))
+        app.add_handler(CallbackQueryHandler(depth_callback,      pattern=r'^depth_'))
+        app.add_handler(CallbackQueryHandler(template_callback,   pattern=r'^tpl_'))
         app.add_error_handler(error_handler)
 
         logger.info("🤖 Smart University Reports Bot v4.0 Ready!")
         print("=" * 60)
         print("✅ Smart University Reports Bot — v4.0")
         print("=" * 60)
-
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
     except Exception as e:
