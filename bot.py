@@ -284,14 +284,14 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
     for i, (q, a) in enumerate(zip(questions, answers), 1):
         qa_block += f"Q{i}: {q}\nA{i}: {a}\n\n"
 
-    return f"""You are a skilled academic writer. Your goal is to write a university report that feels HUMAN-WRITTEN — not AI-generated.
+    return f"""You are a skilled academic writer. Write a university report that feels GENUINELY HUMAN-WRITTEN.
 
 ══════════════════════════════════════
 TOPIC: {topic}
 LANGUAGE: {lang["instruction"]}
 {title_instruction}
-TARGET LENGTH: EXACTLY {d["pages"]} A4 pages when printed (approximately {d["pages"] * 500} words total including all sections).
-SECTIONS: between {d["blocks_min"]} and {d["blocks_max"]} content blocks.
+TARGET: {d["pages"]} A4 pages — approximately {d["pages"] * 430} words (font is large, fewer words fill more space).
+SECTIONS: {d["blocks_min"]} to {d["blocks_max"]} content blocks.
 ══════════════════════════════════════
 
 STUDENT'S REQUIREMENTS:
@@ -299,40 +299,42 @@ STUDENT'S REQUIREMENTS:
 
 ══════════════════════════════════════
 BLOCK TYPES:
-- "paragraph"     → "text": 180-280 words of flowing prose. Use \\n 4-6 times for rhythm.
-- "bullets"       → "items": 6-9 items. Each item MUST have a sub-note: "Main point — detailed explanation of 10-20 words"
-- "numbered_list" → "items": 6-9 steps. Same sub-note style required.
-- "table"         → "headers" + "rows" (5-8 rows, must fit one page — keep cells concise)
-- "pros_cons"     → "pros" 4-5 items + "cons" 4-5 items (KEEP SHORT — must fit on ONE page). Each item MUST have " — " sub-note. After pros_cons, if space remains on that page, add a paragraph block to fill it.
-- "comparison"    → "side_a", "side_b", "criteria"(6-8), "side_a_values", "side_b_values"
-- "stats"         → "items": "Label: value — 15-25 word context explanation" (6-8 items)
-- "examples"      → "items": 6-8 concrete examples, each with " — " explanation
-- "quote"         → "text": 3-5 sentences — key definition or insight expanded with context
+- "paragraph"  → "text": 140-200 words. Rich analysis. Use \\n 3-5 times for natural rhythm.
+- "bullets"    → "items": 5-7 items. Mix lengths. Sub-note with " — " on 60% of items only (not all).
+- "numbered_list" → "items": 5-7 steps. Same partial sub-note rule.
+- "table"      → "headers" + "rows" (4-6 rows). One page only. Max 2 tables per report.
+- "pros_cons"  → VARY STYLE EACH TIME — choose ONE of these formats randomly:
+    FORMAT A: 4 pros + 4 cons, each with a 1-line sub-note using " — "
+    FORMAT B: 5 pros + 5 cons, SHORT items only (no sub-notes, 4-8 words each)
+    FORMAT C: 3 pros + 3 cons, LONG items (2 sentences each, no " — " separator)
+    → After pros_cons, if page has space, add a short paragraph (80-120 words) to fill it.
+- "comparison" → "side_a","side_b","criteria"(5-6),"side_a_values","side_b_values"
+- "stats"      → "items": "Label: value — explanation" (5-6 items)
+- "examples"   → "items": 5-6 examples with " — " detail
+- "quote"      → "text": 2-3 sentences. Sharp, memorable.
 
 ══════════════════════════════════════
-CONTENT BALANCE — MANDATORY:
-Block distribution MUST follow this ratio:
-  • 45% paragraph blocks (analytical prose) — الأكثرية
-  • 35% bullets/numbered/pros_cons (structured lists)
-  • 20% table/stats/comparison/examples (visual data — max 2 total)
-
-TABLE RULE: Maximum 2 table/comparison/stats blocks per report.
-For every table block, surround it with at least 2 paragraph blocks.
+CONTENT BALANCE:
+  • 45% paragraph blocks
+  • 35% bullets / numbered / pros_cons
+  • 20% table / stats / comparison / examples (max 2 total)
 
 PAGE FILLING — CRITICAL:
-You MUST write enough content to fill {d["pages"]} A4 pages.
-Each page ≈ 500 words. Total ≈ {d["pages"] * 500} words.
-NEVER leave a page partially empty — if a section is short, expand it deeply.
-Every page must be substantially full. No orphaned short sections.
-If short on content: ADD MORE paragraph blocks with deeper analysis — NOT more tables.
+• Font is large (15px) — {d["pages"] * 430} words fills {d["pages"]} pages. Do NOT over-write.
+• Every page must be substantially full — no half-empty pages.
+• If a block is short, extend the NEXT paragraph block rather than adding a new table.
+• pros_cons MUST fit on one page — keep items concise.
 
-WRITING STYLE:
-1. INTRODUCTION: 4-6 sentences. Engaging, sets context, raises a question or problem.
-2. PARAGRAPH BLOCKS: 200-300 words each. Vary sentence length. Use \\n 4-6 times.
-3. LIST ITEMS: never all the same length — mix short and long items deliberately.
-4. NO AI openers: never start with "يتناول هذا التقرير" / "In this report we will" / "هذا الموضوع مهم".
-5. CONCLUSION: 5-7 sentences. Genuine insight or forward-looking statement — not a summary.
-6. ALL text in specified language. Conclusion is MANDATORY.
+HUMAN WRITING — MANDATORY:
+• Vary sentence length aggressively: 5-word sentence next to 35-word sentence.
+• Use contractions, rhetorical questions, direct address occasionally.
+• Start some paragraphs mid-thought — not always with the topic sentence.
+• Conclusion: ONE strong insight or unexpected angle — not a summary.
+• NO formulaic openers. NO "يتناول هذا التقرير" / "In this report".
+• List items must NOT all be the same length — deliberately break symmetry.
+• Avoid starting consecutive paragraphs with the same word/structure.
+
+ALL text in specified language. Conclusion MANDATORY (4-6 sentences).
 
 {format_instructions}"""
 
@@ -640,11 +642,11 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
         extra_page_css    = ""
 
     elif template_name == "professional":
-        page_border       = f"1px solid {a}"
+        # إطار رسمي مزدوج: خط خارجي سميك + خط داخلي رفيع
+        page_border       = f"2px solid {p}"
         page_margin_outer = "0.35cm"
-        page_padding      = "0.7cm"
-        # شريط علوي وسفلي سميك عبر wrapper div
-        extra_page_css    = ""
+        page_padding      = "0.65cm"
+        extra_page_css    = f"outline: 4px solid {p}; outline-offset: -10px;"
 
     elif template_name == "dark_elegant":
         page_border       = f"2px solid {a}"
@@ -658,15 +660,35 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
         page_padding      = "0cm"
         extra_page_css    = ""
 
-    # شريط احترافي علوي/سفلي عبر div داخلي
-    prof_top = (
-        f'<div style="height:7px;background:{p};margin:-{page_padding} -{page_padding} 20px -{page_padding};"></div>'
-        if template_name == "professional" else ""
-    )
-    prof_bot = (
-        f'<div style="height:7px;background:{p};margin:20px -{page_padding} -{page_padding} -{page_padding};"></div>'
-        if template_name == "professional" else ""
-    )
+    # شريط احترافي رسمي: رأس يتضمن خطين وشعار
+    if template_name == "professional":
+        prof_top = (
+            f'<div style="margin-bottom:24px;">'
+            f'<div style="height:5px;background:{p};"></div>'
+            f'<div style="height:2px;background:{a};margin-top:3px;"></div>'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;'
+            f'padding:8px 4px 6px 4px;">'
+            f'<span style="font-size:11px;color:{a};font-weight:700;letter-spacing:2px;text-transform:uppercase;">تقرير أكاديمي رسمي</span>'
+            f'<span style="font-size:10px;color:#8b9bb4;letter-spacing:1px;">OFFICIAL ACADEMIC REPORT</span>'
+            f'</div>'
+            f'<div style="height:1px;background:#d0dae8;"></div>'
+            f'</div>'
+        )
+        prof_bot = (
+            f'<div style="margin-top:24px;">'
+            f'<div style="height:1px;background:#d0dae8;"></div>'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;'
+            f'padding:6px 4px 6px 4px;">'
+            f'<span style="font-size:10px;color:#8b9bb4;">سري — للاستخدام الأكاديمي فقط</span>'
+            f'<span style="font-size:10px;color:#8b9bb4;">Confidential — Academic Use Only</span>'
+            f'</div>'
+            f'<div style="height:2px;background:{a};"></div>'
+            f'<div style="height:5px;background:{p};margin-top:3px;"></div>'
+            f'</div>'
+        )
+    else:
+        prof_top = ""
+        prof_bot = ""
 
     blocks_html = "\n".join(render_block(bl, tc, lang) for bl in report.blocks)
 
@@ -688,12 +710,14 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
     font-family: {font};
     direction: {dir_};
     text-align: {align};
-    line-height: 1.95;
+    line-height: 2.0;
     color: {body_color};
     background: {page_bg};
-    font-size: 14px;
+    font-size: 15.5px;
     margin: 0; padding: 0;
   }}
+  h1 {{ font-size: 22px !important; }}
+  h2 {{ font-size: 15px !important; }}
   /* منع الصفحات الفارغة جزئياً */
   p, li {{ orphans: 4; widows: 4; }}
   div {{ orphans: 3; widows: 3; }}
