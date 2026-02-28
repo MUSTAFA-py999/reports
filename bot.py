@@ -140,6 +140,7 @@ class ReportBlock(BaseModel):
         )
     )
     title: str = Field(description="Section heading")
+    style: Optional[str] = Field(default=None, description="Visual style variant — used only for pros_cons: 'A', 'B', 'C', or 'D'")
     text: Optional[str] = Field(default=None)
     items: Optional[List[str]] = Field(default=None)
     pros: Optional[List[str]] = Field(default=None)
@@ -154,9 +155,9 @@ class ReportBlock(BaseModel):
 
 class DynamicReport(BaseModel):
     title: str = Field(description="Report title")
-    introduction: str = Field(description="Short introduction: 2-3 sentences MAX. Simple and direct. No filler phrases.")
+    introduction: str = Field(description="Introduction: 3-5 sentences. Direct and engaging.")
     blocks: List[ReportBlock] = Field(description="Content blocks")
-    conclusion: str = Field(description="Conclusion: 2-4 sentences. Concrete takeaway. MANDATORY.")
+    conclusion: str = Field(description="Conclusion: 4-6 sentences. Genuine insight — not a summary. MANDATORY.")
 
 
 # ═══════════════════════════════════════════════════
@@ -284,13 +285,13 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
     for i, (q, a) in enumerate(zip(questions, answers), 1):
         qa_block += f"Q{i}: {q}\nA{i}: {a}\n\n"
 
-    return f"""You are a skilled academic writer. Write a university report that feels GENUINELY HUMAN-WRITTEN.
+    return f"""You are a skilled academic writer. Write a university report that feels GENUINELY HUMAN-WRITTEN — not AI.
 
 ══════════════════════════════════════
 TOPIC: {topic}
 LANGUAGE: {lang["instruction"]}
 {title_instruction}
-TARGET: {d["pages"]} A4 pages — approximately {d["pages"] * 430} words (font is large, fewer words fill more space).
+TARGET: {d["pages"]} A4 pages — approximately {d["pages"] * 420} words total.
 SECTIONS: {d["blocks_min"]} to {d["blocks_max"]} content blocks.
 ══════════════════════════════════════
 
@@ -298,44 +299,51 @@ STUDENT'S REQUIREMENTS:
 {qa_block.strip()}
 
 ══════════════════════════════════════
-BLOCK TYPES:
-- "paragraph"  → "text": 140-200 words. Rich analysis. Use \\n 3-5 times for natural rhythm.
-- "bullets"    → "items": 5-7 items. Mix lengths. Sub-note with " — " on 60% of items only (not all).
-- "numbered_list" → "items": 5-7 steps. Same partial sub-note rule.
-- "table"      → "headers" + "rows" (4-6 rows). One page only. Max 2 tables per report.
-- "pros_cons"  → VARY STYLE EACH TIME — choose ONE of these formats randomly:
-    FORMAT A: 4 pros + 4 cons, each with a 1-line sub-note using " — "
-    FORMAT B: 5 pros + 5 cons, SHORT items only (no sub-notes, 4-8 words each)
-    FORMAT C: 3 pros + 3 cons, LONG items (2 sentences each, no " — " separator)
-    → After pros_cons, if page has space, add a short paragraph (80-120 words) to fill it.
-- "comparison" → "side_a","side_b","criteria"(5-6),"side_a_values","side_b_values"
-- "stats"      → "items": "Label: value — explanation" (5-6 items)
-- "examples"   → "items": 5-6 examples with " — " detail
-- "quote"      → "text": 2-3 sentences. Sharp, memorable.
+BLOCK TYPES AND WORD COUNTS:
+- "paragraph"    → "text": 160-220 words. Natural line breaks using \\n (3-5 times). End some sentences MID-LINE deliberately.
+- "bullets"      → "items": 5-7 items. 40% have sub-note with " — ", 60% are standalone. Mix lengths — never uniform.
+- "numbered_list"→ "items": 5-7 steps. Same 40/60 sub-note rule.
+- "table"        → "headers" + "rows" (4-6 rows). Fits one page. Max 2 per report.
+- "pros_cons"    → "pros": 4-5 items, "cons": 4-5 items.
+                   Set "style" field to ONE of: "A", "B", "C", "D" — pick different style each report.
+                   Style A = two-column cards with colored header
+                   Style B = alternating green/red rows in single table
+                   Style C = stacked vertical sections (pros above, cons below)
+                   Style D = emoji list (✅/❌) in single flowing column
+                   PLACEMENT RULE: pros_cons must appear either:
+                   (a) after a full paragraph that fills the top of the page, OR
+                   (b) at the start of a page followed by a bullets/paragraph to fill remaining space.
+                   NEVER place pros_cons alone on a half-empty page.
+- "comparison"   → criteria: 5-6. Max 2 per report.
+- "stats"        → "items": 5-6. "Label: value — context" format.
+- "examples"     → "items": 5-6 with " — " detail on 60% only.
+- "quote"        → "text": 2-3 sentences. Sharp and direct.
 
 ══════════════════════════════════════
+PAGE FILLING STRATEGY — CRITICAL:
+Total words needed: ~{d["pages"] * 420}. Font is large (15.5px) — text fills pages faster than expected.
+• After ANY block that is short (bullets, quote, pros_cons), the NEXT block must be a paragraph of 160-220 words.
+• Never have two consecutive short blocks — always alternate: short → long → short → long.
+• If you sense a page will be short, EXPAND the preceding paragraph — do NOT add another table/list.
+• pros_cons text is justified — items will naturally fill their column width.
+
 CONTENT BALANCE:
-  • 45% paragraph blocks
+  • 45% paragraph blocks (most important)
   • 35% bullets / numbered / pros_cons
-  • 20% table / stats / comparison / examples (max 2 total)
+  • 20% table/stats/comparison/examples (max 2 total)
 
-PAGE FILLING — CRITICAL:
-• Font is large (15px) — {d["pages"] * 430} words fills {d["pages"]} pages. Do NOT over-write.
-• Every page must be substantially full — no half-empty pages.
-• If a block is short, extend the NEXT paragraph block rather than adding a new table.
-• pros_cons MUST fit on one page — keep items concise.
+══════════════════════════════════════
+HUMAN WRITING STYLE — MANDATORY:
+1. Vary sentence length aggressively: "قصيرة. ثم جملة أطول تشرح وتوسّع الفكرة بشكل كامل ومقنع."
+2. End sentences in the MIDDLE of a visual line — don't pad to reach line end.
+3. Start some paragraphs mid-thought or with a rhetorical question.
+4. List items: deliberately unequal lengths. Some 4 words, some 18 words.
+5. Conclusions: one strong unexpected angle or forward-looking statement. NOT a summary.
+6. NO formulaic openers: "يتناول" / "In this report" / "هذا الموضوع مهم" are FORBIDDEN.
+7. Paragraphs: start with strong claim, develop it, end with a twist or implication.
+8. Use \\n inside paragraph text to create natural visual breathing — not every sentence.
 
-HUMAN WRITING — MANDATORY:
-• Vary sentence length aggressively: 5-word sentence next to 35-word sentence.
-• Use contractions, rhetorical questions, direct address occasionally.
-• Start some paragraphs mid-thought — not always with the topic sentence.
-• Conclusion: ONE strong insight or unexpected angle — not a summary.
-• NO formulaic openers. NO "يتناول هذا التقرير" / "In this report".
-• List items must NOT all be the same length — deliberately break symmetry.
-• Avoid starting consecutive paragraphs with the same word/structure.
-
-ALL text in specified language. Conclusion MANDATORY (4-6 sentences).
-
+ALL text in specified language. Conclusion MANDATORY.
 {format_instructions}"""
 
 
@@ -473,67 +481,143 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
     elif bt == "pros_cons":
         pros  = b.pros or []
         cons  = b.cons or []
+        style = (b.style or "A").upper().strip()
 
-        def pro_item(x):
+        def pro_item_full(x):
             sep = " — "
             if sep in str(x):
-                parts = str(x).split(sep, 1)
+                pts = str(x).split(sep, 1)
                 return (
-                    f'<li style="margin-bottom:7px;line-height:1.7;font-size:13px;">'
-                    f'<span style="font-weight:700;color:#1a5e38;">{esc(parts[0].strip())}</span>'
-                    f'<br><span style="color:#2d6a4f;font-size:12px;padding-{("right" if is_rtl else "left")}:4px;">'
-                    f'↳ {esc(parts[1].strip())}</span></li>'
+                    f'<li style="margin-bottom:7px;line-height:1.75;font-size:13.5px;">'
+                    f'<span style="font-weight:700;color:#1a5e38;">{esc(pts[0].strip())}</span>'
+                    f'<br><span style="color:#2d6a4f;font-size:12.5px;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
                 )
-            return (
-                f'<li style="margin-bottom:7px;line-height:1.7;font-size:13px;">'
-                f'<span style="font-weight:700;color:#1a5e38;">{esc(x)}</span></li>'
-            )
+            return f'<li style="margin-bottom:7px;line-height:1.75;font-size:13.5px;font-weight:600;color:#1a5e38;">{esc(x)}</li>'
 
-        def con_item(x):
+        def con_item_full(x):
             sep = " — "
             if sep in str(x):
-                parts = str(x).split(sep, 1)
+                pts = str(x).split(sep, 1)
                 return (
-                    f'<li style="margin-bottom:7px;line-height:1.7;font-size:13px;">'
-                    f'<span style="font-weight:700;color:#7b1a1a;">{esc(parts[0].strip())}</span>'
-                    f'<br><span style="color:#922b21;font-size:12px;padding-{("right" if is_rtl else "left")}:4px;">'
-                    f'↳ {esc(parts[1].strip())}</span></li>'
+                    f'<li style="margin-bottom:7px;line-height:1.75;font-size:13.5px;">'
+                    f'<span style="font-weight:700;color:#7b1a1a;">{esc(pts[0].strip())}</span>'
+                    f'<br><span style="color:#922b21;font-size:12.5px;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
                 )
-            return (
-                f'<li style="margin-bottom:7px;line-height:1.7;font-size:13px;">'
-                f'<span style="font-weight:700;color:#7b1a1a;">{esc(x)}</span></li>'
+            return f'<li style="margin-bottom:7px;line-height:1.75;font-size:13.5px;font-weight:600;color:#7b1a1a;">{esc(x)}</li>'
+
+        if style == "A":
+            # ── Style A: بطاقتان جانبيتان مع رأس ملوّن ──
+            p_lis = "".join(pro_item_full(x) for x in pros)
+            c_lis = "".join(con_item_full(x) for x in cons)
+            pro_hdr = (
+                f'<div style="background:#1a5e38;color:#fff;font-weight:700;font-size:14px;'
+                f'padding:9px 16px;border-radius:6px 6px 0 0;">{lang["pros_label"]}</div>'
+            )
+            con_hdr = (
+                f'<div style="background:#7b1a1a;color:#fff;font-weight:700;font-size:14px;'
+                f'padding:9px 16px;border-radius:6px 6px 0 0;">{lang["cons_label"]}</div>'
+            )
+            inner = (
+                f'<table style="width:100%;border-collapse:separate;border-spacing:8px 0;">'
+                f'<tr>'
+                f'<td style="vertical-align:top;width:50%;padding:0;">'
+                f'{pro_hdr}'
+                f'<div style="background:#f0fff4;border:2px solid #1a5e38;border-top:none;'
+                f'border-radius:0 0 6px 6px;padding:10px 14px;">'
+                f'<ul style="{p_side}:14px;margin:0;">{p_lis}</ul></div></td>'
+                f'<td style="vertical-align:top;width:50%;padding:0;">'
+                f'{con_hdr}'
+                f'<div style="background:#fff5f5;border:2px solid #7b1a1a;border-top:none;'
+                f'border-radius:0 0 6px 6px;padding:10px 14px;">'
+                f'<ul style="{p_side}:14px;margin:0;">{c_lis}</ul></div></td>'
+                f'</tr></table>'
             )
 
-        p_lis = "".join(pro_item(x) for x in pros)
-        c_lis = "".join(con_item(x) for x in cons)
+        elif style == "B":
+            # ── Style B: صفوف متناوبة خضراء/حمراء في جدول واحد ──
+            rows_html = ""
+            all_items = [("+", x) for x in pros] + [("-", x) for x in cons]
+            for sign, item in all_items:
+                is_pro = sign == "+"
+                row_bg   = "#f0fff4" if is_pro else "#fff5f5"
+                dot_bg   = "#1a5e38" if is_pro else "#7b1a1a"
+                dot_char = "✓" if is_pro else "✗"
+                sep = " — "
+                if sep in str(item):
+                    pts = str(item).split(sep, 1)
+                    cell = (
+                        f'<span style="font-weight:700;">{esc(pts[0].strip())}</span>'
+                        f'<span style="color:#555;font-size:12.5px;"> — {esc(pts[1].strip())}</span>'
+                    )
+                else:
+                    cell = f'<span style="font-weight:600;">{esc(item)}</span>'
+                rows_html += (
+                    f'<tr style="background:{row_bg};">'
+                    f'<td style="width:32px;text-align:center;font-weight:800;color:{dot_bg};'
+                    f'font-size:16px;padding:9px 6px;border-bottom:1px solid #e8f0e8;">{dot_char}</td>'
+                    f'<td style="padding:9px 12px;border-bottom:1px solid #e8e8e8;'
+                    f'font-size:13.5px;line-height:1.7;">{cell}</td>'
+                    f'</tr>'
+                )
+            inner = (
+                f'<table style="width:100%;border-collapse:collapse;'
+                f'border:1px solid #d0d0d0;border-radius:6px;overflow:hidden;">'
+                f'<thead><tr>'
+                f'<th style="background:#2d3748;color:#fff;padding:9px 6px;width:32px;font-size:13px;">±</th>'
+                f'<th style="background:#2d3748;color:#fff;padding:9px 14px;text-align:{align};font-size:13px;">التفاصيل</th>'
+                f'</tr></thead><tbody>{rows_html}</tbody></table>'
+            )
 
-        pro_header = (
-            f'<div style="background:#1a5e38;color:#ffffff;font-weight:bold;font-size:14px;'
-            f'padding:10px 16px;border-radius:6px 6px 0 0;margin-bottom:0;letter-spacing:0.5px;">'
-            f'{lang["pros_label"]}</div>'
-        )
-        con_header = (
-            f'<div style="background:#7b1a1a;color:#ffffff;font-weight:bold;font-size:14px;'
-            f'padding:10px 16px;border-radius:6px 6px 0 0;margin-bottom:0;letter-spacing:0.5px;">'
-            f'{lang["cons_label"]}</div>'
-        )
+        elif style == "C":
+            # ── Style C: قسمان مكدّسان عموديًا (pros أعلى، cons أسفل) ──
+            p_lis = "".join(pro_item_full(x) for x in pros)
+            c_lis = "".join(con_item_full(x) for x in cons)
+            inner = (
+                f'<div style="border:2px solid #1a5e38;border-radius:8px;margin-bottom:10px;">'
+                f'<div style="background:#1a5e38;color:#fff;font-weight:700;font-size:14px;'
+                f'padding:9px 16px;border-radius:6px 6px 0 0;">{lang["pros_label"]}</div>'
+                f'<div style="background:#f0fff4;padding:10px 16px;">'
+                f'<ul style="{p_side}:16px;margin:0;">{p_lis}</ul></div></div>'
+                f'<div style="border:2px solid #7b1a1a;border-radius:8px;">'
+                f'<div style="background:#7b1a1a;color:#fff;font-weight:700;font-size:14px;'
+                f'padding:9px 16px;border-radius:6px 6px 0 0;">{lang["cons_label"]}</div>'
+                f'<div style="background:#fff5f5;padding:10px 16px;">'
+                f'<ul style="{p_side}:16px;margin:0;">{c_lis}</ul></div></div>'
+            )
 
-        return (
-            f'<div style="margin:18px 0;page-break-inside:avoid;">{h2}'
-            f'<table style="width:100%;border-collapse:separate;border-spacing:8px 0;page-break-inside:avoid;">'
-            f'<tr>'
-            f'<td style="vertical-align:top;width:50%;padding:0;">'
-            f'{pro_header}'
-            f'<div style="background:#f0fff4;border:2px solid #1a5e38;border-top:none;'
-            f'border-radius:0 0 6px 6px;padding:10px 14px;">'
-            f'<ul style="{p_side}:14px;margin:0;">{p_lis}</ul></div></td>'
-            f'<td style="vertical-align:top;width:50%;padding:0;">'
-            f'{con_header}'
-            f'<div style="background:#fff5f5;border:2px solid #7b1a1a;border-top:none;'
-            f'border-radius:0 0 6px 6px;padding:10px 14px;">'
-            f'<ul style="{p_side}:14px;margin:0;">{c_lis}</ul></div></td>'
-            f'</tr></table></div>'
-        )
+        else:  # Style D
+            # ── Style D: قائمة نصية واحدة بإيموجي ✅/❌ أسلوب إنساني ──
+            items_html = ""
+            for x in pros:
+                sep = " — "
+                if sep in str(x):
+                    pts = str(x).split(sep, 1)
+                    text_part = f'<b>{esc(pts[0].strip())}</b> — <span style="color:#555;">{esc(pts[1].strip())}</span>'
+                else:
+                    text_part = f'<b>{esc(x)}</b>'
+                items_html += (
+                    f'<div style="display:flex;gap:10px;margin-bottom:9px;align-items:flex-start;">'
+                    f'<span style="font-size:16px;flex-shrink:0;">✅</span>'
+                    f'<span style="font-size:13.5px;line-height:1.75;">{text_part}</span></div>'
+                )
+            for x in cons:
+                sep = " — "
+                if sep in str(x):
+                    pts = str(x).split(sep, 1)
+                    text_part = f'<b>{esc(pts[0].strip())}</b> — <span style="color:#555;">{esc(pts[1].strip())}</span>'
+                else:
+                    text_part = f'<b>{esc(x)}</b>'
+                items_html += (
+                    f'<div style="display:flex;gap:10px;margin-bottom:9px;align-items:flex-start;">'
+                    f'<span style="font-size:16px;flex-shrink:0;">❌</span>'
+                    f'<span style="font-size:13.5px;line-height:1.75;">{text_part}</span></div>'
+                )
+            inner = (
+                f'<div style="background:{bg};border:{b_side.split("-")[1]}:3px solid {a};'
+                f'padding:14px 18px;border-radius:6px;">{items_html}</div>'
+            )
+
+        return f'<div style="margin:18px 0;">{h2}{inner}</div>'
 
     elif bt == "table":
         headers   = b.headers or []
@@ -709,23 +793,26 @@ def render_html(report: DynamicReport, template_name: str, language_key: str) ->
   body {{
     font-family: {font};
     direction: {dir_};
-    text-align: {align};
+    text-align: justify;
     line-height: 2.0;
     color: {body_color};
     background: {page_bg};
     font-size: 15.5px;
     margin: 0; padding: 0;
+    word-spacing: 0.05em;
   }}
-  h1 {{ font-size: 22px !important; }}
-  h2 {{ font-size: 15px !important; }}
-  /* منع الصفحات الفارغة جزئياً */
-  p, li {{ orphans: 4; widows: 4; }}
-  div {{ orphans: 3; widows: 3; }}
-  /* منع انقسام الجداول بين الصفحات */
-  table {{ page-break-inside: avoid; }}
-  .block-table, .block-comparison, .block-stats {{ page-break-inside: avoid; }}
-  /* تجنب بقاء عنوان وحده في نهاية صفحة */
-  h2 {{ page-break-after: avoid; }}
+  p {{ text-align: justify; margin: 0 0 8px 0; }}
+  h1 {{ font-size: 22px !important; text-align: center; }}
+  h2 {{ font-size: 15px !important; text-align: {align}; }}
+  li {{ text-align: {align}; }}
+  /* orphans/widows منخفضة = كسر طبيعي = صفحات ممتلئة */
+  p, li {{ orphans: 2; widows: 2; }}
+  /* منع انقسام الجداول الفعلية فقط */
+  .block-table  {{ page-break-inside: avoid; }}
+  .block-stats  {{ page-break-inside: avoid; }}
+  .block-comparison {{ page-break-inside: avoid; }}
+  /* تجنب بقاء h2 وحده في نهاية صفحة */
+  h2 {{ page-break-after: avoid; orphans: 3; widows: 3; }}
 </style>
 </head>
 <body>
