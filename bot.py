@@ -27,11 +27,11 @@ flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "✅ Repooreto Bot v5.0"
+    return "✅ Repooreto Bot v5.1"
 
 @flask_app.route('/health')
 def health():
-    return {"status": "healthy", "version": "5.0"}, 200
+    return {"status": "healthy", "version": "5.1"}, 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -216,21 +216,54 @@ CUSTOM_COLORS = {
     "gold":       {"label": "✨ ذهبي ملكي",    "primary": "#5b0e2d", "accent": "#c9a227", "bg": "#fdf6e3", "bg2": "#fff9f0"},
 }
 
+# ── خيارات حجم الخط ──
 CUSTOM_FONT_SIZES = {
-    "small":  {"label": "🔡 صغير  (14.5px)", "size": "14.5px"},
-    "medium": {"label": "🔤 متوسط (16.5px)", "size": "16.5px"},
-    "large":  {"label": "🔠 كبير  (18.5px)", "size": "18.5px"},
+    "xsmall": {"label": "🔹 صغير جداً (12px)", "size": "12px"},
+    "small":  {"label": "🔸 صغير (14px)",      "size": "14px"},
+    "medium": {"label": "🔹 متوسط (16px)",     "size": "16px"},
+    "large":  {"label": "🔸 كبير (18px)",      "size": "18px"},
+    "xlarge": {"label": "🔹 كبير جداً (20px)", "size": "20px"},
 }
 
+# ── خيارات نوع الخط ──
 CUSTOM_FONTS = {
     "traditional": {"label": "📜 تقليدي",        "value": "'Traditional Arabic', serif"},
-    "amiri":       {"label": "🕌 أميري",          "value": "'Amiri', 'Traditional Arabic', serif"},
-    "cairo":       {"label": "🏙 كايرو",          "value": "'Cairo', 'Arial', sans-serif"},
-    "tajawal":     {"label": "✍️ تجوّل",         "value": "'Tajawal', 'Arial', sans-serif"},
-    "arial":       {"label": "🔤 Arial",           "value": "'Arial', 'Helvetica', sans-serif"},
-    "georgia":     {"label": "📰 Georgia",         "value": "'Georgia', 'Times New Roman', serif"},
-    "times":       {"label": "📋 Times New Roman", "value": "'Times New Roman', serif"},
-    "verdana":     {"label": "👁 Verdana",         "value": "'Verdana', sans-serif"},
+    "amiri":       {"label": "🕌 أميري",          "value": "'Amiri', serif"},
+    "cairo":       {"label": "🏙 كايرو",          "value": "'Cairo', sans-serif"},
+    "tajawal":     {"label": "✍️ تجوّل",         "value": "'Tajawal', sans-serif"},
+    "arial":       {"label": "🔤 Arial",          "value": "Arial, sans-serif"},
+    "georgia":     {"label": "📰 Georgia",        "value": "Georgia, serif"},
+    "times":       {"label": "📋 Times New Roman","value": "'Times New Roman', serif"},
+    "verdana":     {"label": "👁 Verdana",        "value": "Verdana, sans-serif"},
+    "roboto":      {"label": "🤖 Roboto",         "value": "'Roboto', sans-serif"},
+    "open-sans":   {"label": "✉️ Open Sans",      "value": "'Open Sans', sans-serif"},
+}
+
+# ── خيارات تباعد الأسطر ──
+LINE_HEIGHTS = {
+    "compact": {"label": "📏 مضغوط (1.5)", "value": "1.5"},
+    "normal":  {"label": "📐 عادي (1.8)",   "value": "1.8"},
+    "relaxed": {"label": "📏 واسع (2.2)",   "value": "2.2"},
+}
+
+# ── خيارات هوامش الصفحة ──
+PAGE_MARGINS = {
+    "small":  {"label": "🔹 ضيقة (1.5 سم)", "value": "1.5cm"},
+    "medium": {"label": "🔸 متوسطة (2.5 سم)", "value": "2.5cm"},
+    "large":  {"label": "🔻 واسعة (3.5 سم)", "value": "3.5cm"},
+}
+
+# ── خيارات نمط العنوان الرئيسي ──
+HEADER_STYLES = {
+    "classic": {"label": "🏛 كلاسيكي (أسود)", "color": "#000000", "size": "22px"},
+    "colored": {"label": "🎨 ملون (حسب التصميم)", "color": "auto", "size": "24px"},
+    "minimal": {"label": "⬜ بسيط (رمادي)", "color": "#4a5568", "size": "20px"},
+}
+
+# ── خيارات إظهار الترويسة والتذييل ──
+SHOW_HEADER_FOOTER = {
+    "yes": {"label": "✅ نعم، أظهرها", "show": True},
+    "no":  {"label": "❌ لا، أخفها", "show": False},
 }
 
 DEPTH_OPTIONS = {
@@ -249,6 +282,10 @@ STATE_GUIDANCE = {
     "choosing_font_size":   "🔡 من فضلك <b>اختر حجم الخط</b> من الأزرار أعلاه.",
     "choosing_font":        "✍️ من فضلك <b>اختر نوع الخط</b> من الأزرار أعلاه.",
     "choosing_colors":      "🎨 من فضلك <b>اختر نظام الألوان</b> من الأزرار أعلاه.",
+    "choosing_line_height": "📏 من فضلك <b>اختر تباعد الأسطر</b> من الأزرار أعلاه.",
+    "choosing_page_margin": "📐 من فضلك <b>اختر هوامش الصفحة</b> من الأزرار أعلاه.",
+    "choosing_header_style":"🎯 من فضلك <b>اختر نمط العنوان الرئيسي</b> من الأزرار أعلاه.",
+    "choosing_show_header": "📰 من فضلك <b>اختر إظهار الترويسة والتذييل</b> من الأزرار أعلاه.",
     "asking_comparison":    "📊 من فضلك <b>اختر</b> من الأزرار أعلاه.",
     "entering_comparison":  "✏️ اكتب الشيئين اللذين تريد مقارنتهما.\nمثال: <code>Python مقابل Java</code>",
     "in_queue":             "👻 تقريرك في الطابور... أرسل /cancel لإلغاء.",
@@ -634,11 +671,24 @@ def render_html(report: DynamicReport, session: dict) -> str:
         p, a, bg, bg2 = colors["primary"], colors["accent"], colors["bg"], colors["bg2"]
         font_size = CUSTOM_FONT_SIZES[session.get("custom_font_size_key", "medium")]["size"]
         font      = CUSTOM_FONTS[session.get("custom_font_key", "traditional")]["value"]
+        line_height = LINE_HEIGHTS[session.get("custom_line_height", "normal")]["value"]
+        page_margin = PAGE_MARGINS[session.get("custom_page_margin", "medium")]["value"]
+        header_style_key = session.get("custom_header_style", "colored")
+        header_color = HEADER_STYLES[header_style_key]["color"]
+        if header_color == "auto":
+            header_color = a
+        header_size = HEADER_STYLES[header_style_key]["size"]
+        show_hf = SHOW_HEADER_FOOTER[session.get("custom_show_header_footer", "yes")]["show"]
     else:
         tc        = TEMPLATES[template_name]
         p, a, bg, bg2 = tc["primary"], tc["accent"], tc["bg"], tc["bg2"]
         font_size = "16.5px"
         font      = lang["font"]
+        line_height = "1.8"  # normal
+        page_margin = "2.5cm" # medium
+        header_color = p
+        header_size = "24px"
+        show_hf = True
 
     tc     = {"primary": p, "accent": a, "bg": bg, "bg2": bg2}
     dir_   = lang["dir"]
@@ -664,9 +714,11 @@ def render_html(report: DynamicReport, session: dict) -> str:
         "royal":        (f"3px solid {p}", "0.35cm", "0.7cm", f"outline:2px solid {a};outline-offset:-8px;"),
         "_custom":      (f"3px solid {p}", "0.35cm", "0.7cm", f"outline:1.5px solid {a};outline-offset:-8px;"),
     }
-    page_border, page_margin, page_padding, extra_css = borders.get(
+    page_border, page_margin_extra, page_padding, extra_css = borders.get(
         template_name, ("none", "2cm", "0cm", "")
     )
+    # استخدم page_margin المخصص إذا كان موجوداً
+    final_margin = page_margin if is_custom else page_margin_extra
 
     # ── ترويسة وتذييل ──
     gdir = "left" if is_rtl else "right"
@@ -717,6 +769,10 @@ def render_html(report: DynamicReport, session: dict) -> str:
     else:
         prof_top = prof_bot = ""
 
+    if not show_hf:
+        prof_top = ""
+        prof_bot = ""
+
     blocks_html = "\n".join(render_block(bl, tc, lang) for bl in report.blocks)
 
     return f"""<!DOCTYPE html>
@@ -726,7 +782,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
 <style>
   @page {{
     size: A4;
-    margin: {page_margin};
+    margin: {final_margin};
     border: {page_border};
     padding: {page_padding};
     background: {page_bg};
@@ -737,7 +793,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
     font-family: {font};
     direction: {dir_};
     text-align: justify;
-    line-height: 2.05;
+    line-height: {line_height};
     color: {body_color};
     background: {page_bg};
     font-size: {font_size};
@@ -745,7 +801,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
     word-spacing: 0.05em;
   }}
   p  {{ text-align: justify; margin: 0 0 9px 0; }}
-  h1 {{ font-size: 24px !important; text-align: center; }}
+  h1 {{ font-size: {header_size} !important; text-align: center; color: {header_color}; }}
   h2 {{ font-size: 15.5px !important; text-align: {align}; }}
   li {{ text-align: {align}; }}
   p, li {{ orphans: 2; widows: 2; }}
@@ -757,8 +813,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
 
 {prof_top}
 
-<h1 style="text-align:center;color:{p};font-size:25px;font-weight:bold;
-           padding-bottom:14px;margin-bottom:28px;border-bottom:3px solid {a};">
+<h1 style="text-align:center; padding-bottom:14px; margin-bottom:28px; border-bottom:3px solid {a};">
   {esc(report.title)}
 </h1>
 
@@ -841,6 +896,30 @@ def colors_keyboard():
             row.append(InlineKeyboardButton(items[i+1][1]["label"], callback_data=f"color_{items[i+1][0]}"))
         rows.append(row)
     return InlineKeyboardMarkup(rows)
+
+def line_height_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(v["label"], callback_data=f"lh_{k}")]
+        for k, v in LINE_HEIGHTS.items()
+    ])
+
+def page_margin_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(v["label"], callback_data=f"pm_{k}")]
+        for k, v in PAGE_MARGINS.items()
+    ])
+
+def header_style_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(v["label"], callback_data=f"hs_{k}")]
+        for k, v in HEADER_STYLES.items()
+    ])
+
+def show_header_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(v["label"], callback_data=f"sh_{k}")]
+        for k, v in SHOW_HEADER_FOOTER.items()
+    ])
 
 def comparison_keyboard():
     return InlineKeyboardMarkup([
@@ -1057,10 +1136,18 @@ async def style_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     else:
         session["custom_mode"] = True
-        session["state"]       = "choosing_font_size"
+        # تهيئة القيم الافتراضية للتخصيص
+        session["custom_font_size_key"] = "medium"
+        session["custom_font_key"] = "traditional"
+        session["custom_color_key"] = "royal_blue"
+        session["custom_line_height"] = "normal"
+        session["custom_page_margin"] = "medium"
+        session["custom_header_style"] = "colored"
+        session["custom_show_header_footer"] = "yes"
+        session["state"] = "choosing_font_size"
         await query.edit_message_text(
             "🎨 <b>رحلة التخصيص بدأت! 👻</b>\n\n"
-            "📐 <b>الخطوة 1 من 3 — حجم الخط:</b>\n"
+            "📐 <b>الخطوة 1 من 6 — حجم الخط:</b>\n"
             "اختر الحجم الذي يريح عينيك 👇",
             reply_markup=font_size_keyboard(), parse_mode='HTML'
         )
@@ -1080,7 +1167,7 @@ async def font_size_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     session["state"]                = "choosing_font"
     await query.edit_message_text(
         f"✅ <b>الحجم:</b> {CUSTOM_FONT_SIZES[key]['label']}\n\n"
-        "✍️ <b>الخطوة 2 من 3 — نوع الخط:</b>\n"
+        "✍️ <b>الخطوة 2 من 6 — نوع الخط:</b>\n"
         "الخطوط العلوية للعربية — السفلية للإنجليزية 👇",
         reply_markup=font_keyboard(), parse_mode='HTML'
     )
@@ -1100,7 +1187,7 @@ async def font_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["state"]           = "choosing_colors"
     await query.edit_message_text(
         f"✅ <b>الخط:</b> {CUSTOM_FONTS[key]['label']}\n\n"
-        "🎨 <b>الخطوة 3 من 3 — نظام الألوان:</b>\n"
+        "🎨 <b>الخطوة 3 من 6 — نظام الألوان:</b>\n"
         "اختر الروح البصرية لتقريرك 👇",
         reply_markup=colors_keyboard(), parse_mode='HTML'
     )
@@ -1117,9 +1204,88 @@ async def colors_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
     session = user_sessions[user_id]
     session["custom_color_key"] = key
-    session["state"]            = "asking_comparison"
+    session["state"]            = "choosing_line_height"
     await query.edit_message_text(
         f"✅ <b>الألوان:</b> {CUSTOM_COLORS[key]['label']}\n\n"
+        "📏 <b>الخطوة 4 من 6 — تباعد الأسطر:</b>\n"
+        "اختر المسافة بين السطور 👇",
+        reply_markup=line_height_keyboard(), parse_mode='HTML'
+    )
+
+
+async def line_height_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query   = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    key     = query.data.replace("lh_", "")
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية."); return
+    if user_sessions[user_id].get("state") != "choosing_line_height":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+    session = user_sessions[user_id]
+    session["custom_line_height"] = key
+    session["state"]            = "choosing_page_margin"
+    await query.edit_message_text(
+        f"✅ <b>تباعد الأسطر:</b> {LINE_HEIGHTS[key]['label']}\n\n"
+        "📐 <b>الخطوة 5 من 6 — هوامش الصفحة:</b>\n"
+        "اختر حجم الهوامش 👇",
+        reply_markup=page_margin_keyboard(), parse_mode='HTML'
+    )
+
+
+async def page_margin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query   = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    key     = query.data.replace("pm_", "")
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية."); return
+    if user_sessions[user_id].get("state") != "choosing_page_margin":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+    session = user_sessions[user_id]
+    session["custom_page_margin"] = key
+    session["state"]            = "choosing_header_style"
+    await query.edit_message_text(
+        f"✅ <b>الهوامش:</b> {PAGE_MARGINS[key]['label']}\n\n"
+        "🎯 <b>الخطوة 6 من 6 — نمط العنوان الرئيسي:</b>\n"
+        "اختر شكل العنوان 👇",
+        reply_markup=header_style_keyboard(), parse_mode='HTML'
+    )
+
+
+async def header_style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query   = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    key     = query.data.replace("hs_", "")
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية."); return
+    if user_sessions[user_id].get("state") != "choosing_header_style":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+    session = user_sessions[user_id]
+    session["custom_header_style"] = key
+    session["state"]            = "choosing_show_header"
+    await query.edit_message_text(
+        f"✅ <b>نمط العنوان:</b> {HEADER_STYLES[key]['label']}\n\n"
+        "📰 <b>هل تريد إظهار الترويسة والتذييل؟</b>",
+        reply_markup=show_header_keyboard(), parse_mode='HTML'
+    )
+
+
+async def show_header_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query   = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    key     = query.data.replace("sh_", "")
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية."); return
+    if user_sessions[user_id].get("state") != "choosing_show_header":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+    session = user_sessions[user_id]
+    session["custom_show_header_footer"] = key
+    session["state"]            = "asking_comparison"
+    await query.edit_message_text(
+        f"✅ <b>الترويسة:</b> {SHOW_HEADER_FOOTER[key]['label']}\n\n"
         "📊 <b>هل تريد إضافة جدول مقارنة خاص في التقرير؟</b>\n"
         "<i>مثال: مقارنة Python مع Java، أو الطاقة الشمسية مع النووية...</i>",
         reply_markup=comparison_keyboard(), parse_mode='HTML'
@@ -1230,13 +1396,17 @@ if __name__ == '__main__':
         app.add_handler(CallbackQueryHandler(font_size_callback,  pattern=r'^fsize_'))
         app.add_handler(CallbackQueryHandler(font_callback,       pattern=r'^cfont_'))
         app.add_handler(CallbackQueryHandler(colors_callback,     pattern=r'^color_'))
+        app.add_handler(CallbackQueryHandler(line_height_callback, pattern=r'^lh_'))
+        app.add_handler(CallbackQueryHandler(page_margin_callback, pattern=r'^pm_'))
+        app.add_handler(CallbackQueryHandler(header_style_callback, pattern=r'^hs_'))
+        app.add_handler(CallbackQueryHandler(show_header_callback, pattern=r'^sh_'))
         app.add_handler(CallbackQueryHandler(comp_yes_callback,   pattern=r'^comp_yes$'))
         app.add_handler(CallbackQueryHandler(comp_no_callback,    pattern=r'^comp_no$'))
         app.add_error_handler(error_handler)
 
-        logger.info("👻 Repooreto Bot v5.0 Ready!")
+        logger.info("👻 Repooreto Bot v5.1 Ready!")
         print("=" * 60)
-        print("👻 Repooreto — Smart University Reports Bot v5.0")
+        print("👻 Repooreto — Smart University Reports Bot v5.1")
         print("=" * 60)
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
