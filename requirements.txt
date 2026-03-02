@@ -1,6 +1,7 @@
+Flask
 python-telegram-bot
 langchain-google-genai
 langchain-core
 pydantic
 weasyprint
-flask
+python-docx
