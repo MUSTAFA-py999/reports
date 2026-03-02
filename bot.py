@@ -16,6 +16,10 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from io import BytesIO
 from weasyprint import HTML as WeasyHTML
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+import re
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -27,11 +31,11 @@ flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "✅ Repooreto Bot v5.1"
+    return "✅ Repooreto Bot v5.2"
 
 @flask_app.route('/health')
 def health():
-    return {"status": "healthy", "version": "5.1"}, 200
+    return {"status": "healthy", "version": "5.2"}, 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -58,25 +62,35 @@ async def queue_worker(app):
                     queue_positions[uid] -= 1
             try:
                 loop = asyncio.get_event_loop()
-                pdf_bytes, title = await loop.run_in_executor(None, generate_report, session)
+                # اختيار الصيغة المطلوبة
+                file_format = session.get("file_format", "pdf")
+                if file_format == "pdf":
+                    pdf_bytes, title = await loop.run_in_executor(None, generate_report, session)
+                    file_bytes = pdf_bytes
+                    extension = "pdf"
+                else:
+                    docx_bytes, title = await loop.run_in_executor(None, generate_word_report, session)
+                    file_bytes = docx_bytes
+                    extension = "docx"
 
                 lang_name  = LANGUAGES[session.get("language", "ar")]["name"]
                 depth_name = DEPTH_OPTIONS[session.get("depth", "medium")]["name"]
                 tpl_name   = "🎨 مخصص" if session.get("custom_mode") else TEMPLATES.get(session.get("template", "emerald"), {}).get("name", "")
 
-                if pdf_bytes:
+                if file_bytes:
                     safe_name  = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:40])
                     safe_title = title.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
                     caption = (
                         f"👻 <b>تقريرك جاهز يا طالبنا!</b>\n\n"
                         f"📄 <b>{safe_title}</b>\n"
-                        f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
+                        f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n"
+                        f"📁 الصيغة: {file_format.upper()}\n\n"
                         f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
                     )
                     await app.bot.send_document(
                         chat_id=user_id,
-                        document=BytesIO(pdf_bytes),
-                        filename=f"{safe_name}.pdf",
+                        document=BytesIO(file_bytes),
+                        filename=f"{safe_name}.{extension}",
                         caption=caption,
                         parse_mode='HTML'
                     )
@@ -84,7 +98,7 @@ async def queue_worker(app):
                         await app.bot.delete_message(chat_id=user_id, message_id=msg_id)
                     except Exception:
                         pass
-                    logger.info(f"✅ Report sent to {user_id}")
+                    logger.info(f"✅ Report sent to {user_id} as {extension}")
                 else:
                     err = str(title).replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
                     await app.bot.send_message(
@@ -266,6 +280,12 @@ SHOW_HEADER_FOOTER = {
     "no":  {"label": "❌ لا، أخفها", "show": False},
 }
 
+# ── خيارات صيغة الملف ──
+FILE_FORMATS = {
+    "pdf": {"label": "📄 PDF", "emoji": "📄"},
+    "word": {"label": "📝 Word (DOCX)", "emoji": "📝"},
+}
+
 DEPTH_OPTIONS = {
     "medium":   {"name": "📄 متوسط (3-4 صفحات)", "pages": 4,  "blocks_min": 5,  "blocks_max": 7},
     "detailed": {"name": "📚 مفصل (5-6 صفحات)",  "pages": 6,  "blocks_min": 7,  "blocks_max": 10},
@@ -286,6 +306,7 @@ STATE_GUIDANCE = {
     "choosing_page_margin": "📐 من فضلك <b>اختر هوامش الصفحة</b> من الأزرار أعلاه.",
     "choosing_header_style":"🎯 من فضلك <b>اختر نمط العنوان الرئيسي</b> من الأزرار أعلاه.",
     "choosing_show_header": "📰 من فضلك <b>اختر إظهار الترويسة والتذييل</b> من الأزرار أعلاه.",
+    "choosing_file_format": "📁 من فضلك <b>اختر صيغة الملف</b> من الأزرار أعلاه.",
     "asking_comparison":    "📊 من فضلك <b>اختر</b> من الأزرار أعلاه.",
     "entering_comparison":  "✏️ اكتب الشيئين اللذين تريد مقارنتهما.\nمثال: <code>Python مقابل Java</code>",
     "in_queue":             "👻 تقريرك في الطابور... أرسل /cancel لإلغاء.",
@@ -348,6 +369,14 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
             f"══════════════════════════════════════"
         )
 
+    # تعليمات إضافية لمنع انقسام الجداول عبر الصفحات
+    table_instruction = (
+        "\n\nIMPORTANT: For any table, comparison, or stats block, "
+        "limit the number of rows to MAXIMUM 6 to ensure the entire table fits on one page. "
+        "If you need more data, split into multiple blocks or use a different block type. "
+        "NEVER let a table break across pages."
+    )
+
     return f"""You are a skilled academic writer. Write a university report that feels GENUINELY HUMAN-WRITTEN.
 
 ══════════════════════════════════════
@@ -367,12 +396,14 @@ BLOCK TYPES:
 - "paragraph"     → "text": 150-200 words. Use \\n for natural breaks (3-5 times).
 - "bullets"       → "items": 5-7. 40% with " — " sub-note, 60% standalone.
 - "numbered_list" → "items": 5-7. Same rule.
-- "table"         → "headers" + "rows" (4-6). Max 2 per report.
+- "table"         → "headers" + "rows" (max 6 rows). Max 2 per report.
 - "pros_cons"     → "pros": 4-5, "cons": 4-5. Style A/B/C/D. NEVER on half-empty page.
-- "comparison"    → side_a, side_b, criteria 5-6. Max 2 per report.
-- "stats"         → "items": 5-6. "Label: value — context".
+- "comparison"    → side_a, side_b, criteria 5-6 (max 6 rows). Max 2 per report.
+- "stats"         → "items": 5-6. "Label: value — context". Max 6 rows.
 - "examples"      → "items": 5-6.
 - "quote"         → "text": 2-3 sharp sentences.
+
+{table_instruction}
 
 PAGE FILLING (font is large — fills fast):
 • After short block → NEXT must be paragraph 150-200 words.
@@ -408,6 +439,116 @@ def generate_report(session: dict):
         return pdf_bytes, report.title
     except Exception as e:
         logger.error(f"❌ generate_report: {e}", exc_info=True)
+        return None, str(e)
+
+
+def generate_word_report(session: dict):
+    """
+    توليد تقرير بصيغة Word باستخدام python-docx.
+    """
+    try:
+        # أولاً نولد التقرير النصي باستخدام LLM (نفس الخطوات)
+        llm    = get_llm()
+        parser = PydanticOutputParser(pydantic_object=DynamicReport)
+        prompt = build_report_prompt(session, parser.get_format_instructions())
+        report = None
+        for attempt in range(3):
+            try:
+                result = llm.invoke([HumanMessage(content=prompt)])
+                report = parser.parse(result.content)
+                break
+            except Exception as e:
+                if attempt == 2:
+                    raise e
+                logger.warning(f"Parse attempt {attempt+1} failed: {e}")
+
+        # إنشاء مستند Word
+        doc = Document()
+
+        # ضبط اتجاه المستند حسب اللغة
+        lang_key = session.get("language", "ar")
+        if lang_key == "ar":
+            # للعربية نضبط الاتجاه من اليمين لليسار
+            section = doc.sections[0]
+            section.right_to_left = True
+
+        # إضافة العنوان
+        title = doc.add_heading(report.title, level=1)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        # إضافة المقدمة
+        doc.add_heading(LANGUAGES[lang_key]['intro_label'], level=2)
+        doc.add_paragraph(report.introduction)
+
+        # إضافة الكتل
+        for block in report.blocks:
+            doc.add_heading(block.title, level=3)
+
+            if block.block_type == "paragraph":
+                doc.add_paragraph(block.text)
+
+            elif block.block_type in ("bullets", "numbered_list"):
+                for item in block.items or []:
+                    doc.add_paragraph(item, style='List Bullet' if block.block_type == "bullets" else 'List Number')
+
+            elif block.block_type == "table":
+                if block.headers and block.rows:
+                    table = doc.add_table(rows=1, cols=len(block.headers))
+                    table.style = 'Light Grid Accent 1'
+                    hdr_cells = table.rows[0].cells
+                    for i, h in enumerate(block.headers):
+                        hdr_cells[i].text = h
+                    for row_data in block.rows:
+                        row_cells = table.add_row().cells
+                        for i, cell_text in enumerate(row_data):
+                            if i < len(row_data):
+                                row_cells[i].text = cell_text
+
+            elif block.block_type == "pros_cons":
+                doc.add_paragraph("المزايا:", style='List Bullet')
+                for p in block.pros or []:
+                    doc.add_paragraph(p, style='List Bullet')
+                doc.add_paragraph("العيوب:", style='List Bullet')
+                for c in block.cons or []:
+                    doc.add_paragraph(c, style='List Bullet')
+
+            elif block.block_type == "comparison":
+                if block.criteria and block.side_a_values and block.side_b_values:
+                    table = doc.add_table(rows=1, cols=3)
+                    table.style = 'Light Grid Accent 1'
+                    hdr = table.rows[0].cells
+                    hdr[0].text = "المعيار"
+                    hdr[1].text = block.side_a or "A"
+                    hdr[2].text = block.side_b or "B"
+                    for i, crit in enumerate(block.criteria):
+                        row = table.add_row().cells
+                        row[0].text = crit
+                        row[1].text = block.side_a_values[i] if i < len(block.side_a_values) else "-"
+                        row[2].text = block.side_b_values[i] if i < len(block.side_b_values) else "-"
+
+            elif block.block_type == "stats":
+                for item in block.items or []:
+                    doc.add_paragraph(item, style='List Bullet')
+
+            elif block.block_type == "examples":
+                for item in block.items or []:
+                    doc.add_paragraph(item, style='List Bullet')
+
+            elif block.block_type == "quote":
+                doc.add_paragraph(block.text, style='Intense Quote')
+
+        # إضافة الخاتمة
+        doc.add_heading(LANGUAGES[lang_key]['conclusion_label'], level=2)
+        doc.add_paragraph(report.conclusion)
+
+        # حفظ المستند في BytesIO
+        docx_bytes = BytesIO()
+        doc.save(docx_bytes)
+        docx_bytes.seek(0)
+        return docx_bytes.getvalue(), report.title
+
+    except Exception as e:
+        logger.error(f"❌ generate_word_report: {e}", exc_info=True)
         return None, str(e)
 
 
@@ -921,6 +1062,12 @@ def show_header_keyboard():
         for k, v in SHOW_HEADER_FOOTER.items()
     ])
 
+def file_format_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"{FILE_FORMATS['pdf']['emoji']} PDF", callback_data="format_pdf"),
+         InlineKeyboardButton(f"{FILE_FORMATS['word']['emoji']} Word", callback_data="format_word")]
+    ])
+
 def comparison_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 نعم، أضف جدول مقارنة!", callback_data="comp_yes")],
@@ -936,8 +1083,9 @@ def build_queue_text(session: dict, pos: int) -> str:
     depth_name = DEPTH_OPTIONS[session.get("depth", "medium")]["name"]
     tpl_name   = "🎨 مخصص" if session.get("custom_mode") else TEMPLATES.get(session.get("template", "emerald"), {}).get("name", "")
     safe_topic = session["topic"].replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
+    file_format = FILE_FORMATS[session.get("file_format", "pdf")]["emoji"]
     status     = "👻 <b>الشبح بدأ يكتب تقريرك!</b>" if pos == 1 else f"⏳ <b>في الطابور — الترتيب {pos}</b> 👻"
-    return f"{status}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}"
+    return f"{status}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}  |  {file_format}"
 
 
 # ═══════════════════════════════════════════════════
@@ -967,7 +1115,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"4️⃣ اختر العمق والتصميم:\n"
         f"   • 🎭 <b>قوالب جاهزة</b> — 6 قوالب احترافية\n"
         f"   • 🎨 <b>تخصيص كامل</b> — خط، ألوان، مقارنة خاصة ✨\n"
-        f"5️⃣ استلم تقريرك PDF! 🎉\n\n"
+        f"5️⃣ اختر صيغة الملف: PDF أو Word\n"
+        f"6️⃣ استلم تقريرك! 🎉\n\n"
         f"👻 <b>أرسل موضوع تقريرك الآن!</b>",
         parse_mode='HTML'
     )
@@ -1014,11 +1163,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if state == "entering_comparison":
             session["comparison_query"] = text
-            session["state"]            = "in_queue"
-            pos = report_queue.qsize() + 1
-            queue_positions[user_id] = pos
-            status = await update.message.reply_text(build_queue_text(session, pos), parse_mode='HTML')
-            await report_queue.put((user_id, session.copy(), status.message_id))
+            session["state"]            = "choosing_file_format"
+            await update.message.reply_text(
+                "📁 <b>الآن اختر صيغة الملف الذي تريده:</b>",
+                reply_markup=file_format_keyboard(), parse_mode='HTML'
+            )
             return
 
         guidance = STATE_GUIDANCE.get(state, "⏳ جاري المعالجة... أرسل /cancel للبدء من جديد.")
@@ -1322,11 +1471,11 @@ async def comp_no_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
     session = user_sessions[user_id]
     session.pop("comparison_query", None)
-    session["state"] = "in_queue"
-    pos = report_queue.qsize() + 1
-    queue_positions[user_id] = pos
-    await query.edit_message_text(build_queue_text(session, pos), parse_mode='HTML')
-    await report_queue.put((user_id, session.copy(), query.message.message_id))
+    session["state"] = "choosing_file_format"
+    await query.edit_message_text(
+        "📁 <b>الآن اختر صيغة الملف الذي تريده:</b>",
+        reply_markup=file_format_keyboard(), parse_mode='HTML'
+    )
 
 
 async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1341,7 +1490,25 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[user_id]
     session["template"]    = tpl
     session["custom_mode"] = False
-    session["state"]       = "in_queue"
+    session["state"]       = "choosing_file_format"
+    await query.edit_message_text(
+        "📁 <b>الآن اختر صيغة الملف الذي تريده:</b>",
+        reply_markup=file_format_keyboard(), parse_mode='HTML'
+    )
+
+
+async def file_format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query   = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    fmt     = query.data.replace("format_", "")
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية."); return
+    session = user_sessions[user_id]
+    if session.get("state") not in ["choosing_file_format", "in_queue"]:
+        await query.answer("هذا الزر غير متاح الآن.", show_alert=True); return
+    session["file_format"] = fmt
+    session["state"] = "in_queue"
     pos = report_queue.qsize() + 1
     queue_positions[user_id] = pos
     await query.edit_message_text(build_queue_text(session, pos), parse_mode='HTML')
@@ -1402,11 +1569,12 @@ if __name__ == '__main__':
         app.add_handler(CallbackQueryHandler(show_header_callback, pattern=r'^sh_'))
         app.add_handler(CallbackQueryHandler(comp_yes_callback,   pattern=r'^comp_yes$'))
         app.add_handler(CallbackQueryHandler(comp_no_callback,    pattern=r'^comp_no$'))
+        app.add_handler(CallbackQueryHandler(file_format_callback, pattern=r'^format_(pdf|word)$'))
         app.add_error_handler(error_handler)
 
-        logger.info("👻 Repooreto Bot v5.1 Ready!")
+        logger.info("👻 Repooreto Bot v5.2 Ready!")
         print("=" * 60)
-        print("👻 Repooreto — Smart University Reports Bot v5.1")
+        print("👻 Repooreto — Smart University Reports Bot v5.2")
         print("=" * 60)
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
