@@ -349,6 +349,44 @@ def get_fonts_by_language(lang_key):
     else:
         return ENGLISH_FONTS
 
+def calculate_words_per_page(session: dict) -> int:
+    """
+    يحسب عدد الكلمات الفعلي المتوقع في كل صفحة A4
+    بناءً على حجم الخط + الهوامش + تباعد الأسطر.
+    للقوالب الجاهزة يُرجع القيمة الافتراضية 400.
+    """
+    if not session.get("custom_mode", False):
+        return 400  # القالب الجاهز: 16.5px + 2.5cm + 1.8 → ~400 كلمة/صفحة
+
+    # تأثير حجم الخط (كلمات أساسية لكل صفحة A4)
+    font_size_words = {
+        "xsmall": 520,
+        "small":  460,
+        "medium": 400,
+        "large":  340,
+        "xlarge": 285,
+    }
+    base = font_size_words.get(session.get("custom_font_size_key", "medium"), 400)
+
+    # تأثير الهوامش (مساحة نصية أكبر = كلمات أكثر)
+    margin_factor = {
+        "small":  1.18,
+        "medium": 1.00,
+        "large":  0.82,
+    }
+    mf = margin_factor.get(session.get("custom_page_margin", "medium"), 1.0)
+
+    # تأثير تباعد الأسطر (سطور أقل = كلمات أقل في الصفحة)
+    lh_factor = {
+        "compact": 1.20,
+        "normal":  1.00,
+        "relaxed": 0.82,
+    }
+    lf = lh_factor.get(session.get("custom_line_height", "normal"), 1.0)
+
+    result = int(base * mf * lf)
+    return max(200, min(650, result))
+
 
 # ------------------- دوال LLM -------------------
 def get_llm():
@@ -363,16 +401,32 @@ def get_llm():
     )
 
 
+def extract_text_content(result) -> str:
+    """استخراج النص من نتيجة LLM سواء كانت string أو list، وتنظيف markdown"""
+    content = result.content
+    if isinstance(content, list):
+        content = " ".join(
+            item.get("text", "") if isinstance(item, dict) else str(item)
+            for item in content
+        )
+    content = str(content).strip()
+    # إزالة markdown code fences مثل ```json ... ```
+    import re
+    content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.MULTILINE)
+    content = re.sub(r"```\s*$", "", content, flags=re.MULTILINE)
+    return content.strip()
+
+
 def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
     lang = LANGUAGES[language_key]
     llm = get_llm()
     parser = PydanticOutputParser(pydantic_object=SmartQuestions)
     prompt = lang["q_prompt"].format(topic=topic) + "\n\n" + parser.get_format_instructions()
     result = llm.invoke([HumanMessage(content=prompt)])
-    return parser.parse(result.content).questions[:5]
+    return parser.parse(extract_text_content(result)).questions[:5]
 
 
-def build_report_prompt(session: dict, format_instructions: str) -> str:
+def build_report_prompt(session: dict, format_instructions: str, feedback: str = "") -> str:
     topic = session["topic"]
     lang_key = session.get("language", "ar")
     depth_key = session.get("depth", "medium")
@@ -383,10 +437,13 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
     custom_title = session.get("custom_title")
 
     target_pages = depth["pages"]
-    words_per_page = depth["words_per_page"]
+    words_per_page = calculate_words_per_page(session)
     target_words = target_pages * words_per_page
-    min_words = int(target_words * 0.9)
-    max_words = int(target_words * 1.1)
+    min_words = int(target_words * 0.93)
+    max_words = int(target_words * 1.07)
+    # عدد الكلمات المستهدف لكل فقرة بناءً على الإعدادات
+    para_min = max(100, int(words_per_page * 0.30))
+    para_max = max(150, int(words_per_page * 0.45))
 
     title_instruction = (
         f'TITLE: Use EXACTLY this title: "{custom_title}" — do not change it.'
@@ -410,12 +467,17 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
             f"══════════════════════════════════════"
         )
 
+    feedback_block = f"\n⚠️ CORRECTION NEEDED:\n{feedback}\n" if feedback else ""
+
     length_instruction = (
-        f"\nLENGTH REQUIREMENTS:\n"
-        f"- Target total word count: {target_words} words (range {min_words}-{max_words} words).\n"
-        f"- This is equivalent to approximately {target_pages} A4 pages with normal formatting.\n"
-        f"- Adjust the content length accordingly. Do NOT exceed {max_words} words.\n"
-        f"- If you need to reduce words, shorten paragraphs or reduce examples, but keep all required sections.\n"
+        f"\nLENGTH REQUIREMENTS — CRITICAL, DO NOT IGNORE:\n"
+        f"- Font size: {session.get('custom_font_size_key','medium')} | Margins: {session.get('custom_page_margin','medium')} | Line spacing: {session.get('custom_line_height','normal')}\n"
+        f"- Based on these settings, each A4 page fits ~{words_per_page} words.\n"
+        f"- Required pages: {target_pages} → Target: {target_words} words (STRICT range: {min_words}–{max_words}).\n"
+        f"- Each 'paragraph' block text MUST be {para_min}–{para_max} words (not shorter, not longer).\n"
+        f"- Use enough paragraph blocks so total word count reaches {target_words} words.\n"
+        f"- NEVER produce fewer than {min_words} words. This is the most important rule.\n"
+        f"- Count your words mentally as you write. If you are below target, expand paragraphs.\n"
     )
 
     human_style_instruction = (
@@ -483,46 +545,89 @@ def count_words(text: str) -> int:
     return len(text.split())
 
 
+def count_report_words(report) -> int:
+    """حساب إجمالي كلمات التقرير بدقة"""
+    total = (
+        count_words(report.title) +
+        count_words(report.introduction) +
+        count_words(report.conclusion)
+    )
+    for block in report.blocks:
+        bt = (block.block_type or "").strip().lower()
+        if bt == "paragraph":
+            total += count_words(block.text or "")
+        elif bt in ("bullets", "numbered_list", "examples"):
+            total += sum(count_words(str(i)) for i in (block.items or []))
+        elif bt == "stats":
+            total += sum(count_words(str(i)) for i in (block.items or []))
+        elif bt == "pros_cons":
+            total += sum(count_words(str(i)) for i in (block.pros or []))
+            total += sum(count_words(str(i)) for i in (block.cons or []))
+        elif bt == "table":
+            for row in (block.rows or []):
+                total += sum(count_words(str(c)) for c in row)
+        elif bt == "comparison":
+            total += sum(count_words(str(c)) for c in (block.criteria or []))
+            total += sum(count_words(str(v)) for v in (block.side_a_values or []))
+            total += sum(count_words(str(v)) for v in (block.side_b_values or []))
+        elif bt == "quote":
+            total += count_words(block.text or "")
+    return total
+
+
 def generate_report(session: dict):
     try:
         llm = get_llm()
         parser = PydanticOutputParser(pydantic_object=DynamicReport)
-        prompt = build_report_prompt(session, parser.get_format_instructions())
+
+        depth_key = session.get("depth", "medium")
+        target_pages = DEPTH_OPTIONS[depth_key]["pages"]
+        words_per_page = calculate_words_per_page(session)
+        expected_words = target_pages * words_per_page
+        tolerance = int(expected_words * 0.07)
 
         best_report = None
         best_diff = float('inf')
+        feedback = ""
 
         for attempt in range(3):
             try:
+                prompt = build_report_prompt(session, parser.get_format_instructions(), feedback)
                 result = llm.invoke([HumanMessage(content=prompt)])
-                report = parser.parse(result.content)
+                report = parser.parse(extract_text_content(result))
 
-                total_words = (
-                    count_words(report.title) +
-                    count_words(report.introduction) +
-                    sum(count_words(block.text or "") for block in report.blocks if block.block_type == "paragraph") +
-                    sum(len(block.items or []) for block in report.blocks if block.block_type in ("bullets", "numbered_list", "stats", "examples")) +
-                    sum(len(block.pros or []) + len(block.cons or []) for block in report.blocks if block.block_type == "pros_cons") +
-                    sum(len(block.rows or []) * len(block.headers or []) for block in report.blocks if block.block_type == "table") +
-                    sum(len(block.criteria or []) for block in report.blocks if block.block_type == "comparison") +
-                    count_words(report.conclusion)
-                )
-
-                depth_key = session.get("depth", "medium")
-                target_pages = DEPTH_OPTIONS[depth_key]["pages"]
-                words_per_page = DEPTH_OPTIONS[depth_key]["words_per_page"]
-                expected_words = target_pages * words_per_page
+                total_words = count_report_words(report)
                 diff = abs(total_words - expected_words)
+
+                logger.info(f"Attempt {attempt+1}: {total_words} words (target {expected_words}, diff {diff})")
 
                 if diff < best_diff:
                     best_diff = diff
                     best_report = report
 
-                if diff <= expected_words * 0.1:
+                if diff <= tolerance:
                     break
+
+                # إعداد تغذية راجعة للمحاولة التالية
+                if total_words < expected_words - tolerance:
+                    shortage = expected_words - total_words
+                    feedback = (
+                        f"Previous attempt produced only {total_words} words but target is {expected_words}. "
+                        f"You are SHORT by {shortage} words. "
+                        f"EXPAND each paragraph block significantly. Add more paragraph blocks if needed. "
+                        f"Each paragraph must be at least {int(words_per_page * 0.35)} words."
+                    )
+                else:
+                    excess = total_words - expected_words
+                    feedback = (
+                        f"Previous attempt produced {total_words} words but target is {expected_words}. "
+                        f"You exceeded by {excess} words. "
+                        f"Shorten paragraph blocks slightly to hit the target."
+                    )
 
             except Exception as e:
                 logger.warning(f"Parse attempt {attempt+1} failed: {e}")
+                feedback = f"Previous attempt failed to parse JSON. Ensure output is valid JSON only."
                 if attempt == 2:
                     raise e
 
