@@ -28,11 +28,11 @@ flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "✅ Repooreto Bot v5.4"
+    return "✅ Repooreto Bot v5.5"
 
 @flask_app.route('/health')
 def health():
-    return {"status": "healthy", "version": "5.4"}, 200
+    return {"status": "healthy", "version": "5.5"}, 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -140,9 +140,9 @@ class ReportBlock(BaseModel):
 
 class DynamicReport(BaseModel):
     title: str = Field(description="Report title")
-    introduction: str = Field(description="Introduction: 3-5 sentences. Direct and engaging.")
+    introduction: str = Field(description="Introduction: 2-3 sentences maximum. Brief and direct.")
     blocks: List[ReportBlock] = Field(description="Content blocks")
-    conclusion: str = Field(description="Conclusion: 2-3 sentences. Must fit on same page.")
+    conclusion: str = Field(description="Conclusion: 1-2 sentences only. Must be very short.")
 
 
 # ------------------- الإعدادات والتكوين -------------------
@@ -154,7 +154,8 @@ LANGUAGES = {
         "dir": "rtl",
         "align": "right",
         "lang_attr": "ar",
-        "font": "'Traditional Arabic', 'Arial', sans-serif",
+        "font": "'Noto Naskh Arabic', 'Arial', sans-serif",
+        "font_url": "https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;700&display=swap",
         "intro_label": "المقدمة",
         "conclusion_label": "الخاتمة",
         "pros_label": "✅ المزايا",
@@ -175,7 +176,8 @@ LANGUAGES = {
         "dir": "ltr",
         "align": "left",
         "lang_attr": "en",
-        "font": "'Arial', 'Helvetica', sans-serif",
+        "font": "'Roboto', 'Arial', sans-serif",
+        "font_url": "https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap",
         "intro_label": "Introduction",
         "conclusion_label": "Conclusion",
         "pros_label": "✅ Pros",
@@ -224,25 +226,75 @@ CUSTOM_FONT_SIZES = {
     "xlarge": {"label": "🔹 كبير جداً (20px)", "size": "20px"},
 }
 
-# خطوط عربية
+# خطوط عربية حقيقية من Google Fonts
 ARABIC_FONTS = {
-    "traditional": {"label": "📜 تقليدي",        "value": "'Traditional Arabic', serif"},
-    "amiri":       {"label": "🕌 أميري",          "value": "'Amiri', serif"},
-    "cairo":       {"label": "🏙 كايرو",          "value": "'Cairo', sans-serif"},
-    "tajawal":     {"label": "✍️ تجوّل",         "value": "'Tajawal', sans-serif"},
+    "noto_naskh":  {
+        "label": "📜 Noto Naskh — كلاسيكي",
+        "value": "'Noto Naskh Arabic', serif",
+        "url": "https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;700&display=swap",
+    },
+    "noto_kufi": {
+        "label": "🔲 Noto Kufi — كوفي عصري",
+        "value": "'Noto Kufi Arabic', sans-serif",
+        "url": "https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;700&display=swap",
+    },
+    "cairo": {
+        "label": "🏙 Cairo — كايرو",
+        "value": "'Cairo', sans-serif",
+        "url": "https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap",
+    },
+    "tajawal": {
+        "label": "✍️ Tajawal — تجوّل",
+        "value": "'Tajawal', sans-serif",
+        "url": "https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap",
+    },
+    "amiri": {
+        "label": "🕌 Amiri — أميري",
+        "value": "'Amiri', serif",
+        "url": "https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&display=swap",
+    },
+    "lateef": {
+        "label": "🌙 Lateef — لطيف",
+        "value": "'Lateef', serif",
+        "url": "https://fonts.googleapis.com/css2?family=Lateef:wght@400;700&display=swap",
+    },
 }
 
-# خطوط إنجليزية
+# خطوط إنجليزية حقيقية من Google Fonts
 ENGLISH_FONTS = {
-    "arial":       {"label": "🔤 Arial",          "value": "Arial, sans-serif"},
-    "georgia":     {"label": "📰 Georgia",        "value": "Georgia, serif"},
-    "times":       {"label": "📋 Times New Roman","value": "'Times New Roman', serif"},
-    "verdana":     {"label": "👁 Verdana",        "value": "Verdana, sans-serif"},
-    "roboto":      {"label": "🤖 Roboto",         "value": "'Roboto', sans-serif"},
-    "open-sans":   {"label": "✉️ Open Sans",      "value": "'Open Sans', sans-serif"},
+    "roboto": {
+        "label": "🤖 Roboto — حديث",
+        "value": "'Roboto', sans-serif",
+        "url": "https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap",
+    },
+    "lato": {
+        "label": "✨ Lato — أنيق",
+        "value": "'Lato', sans-serif",
+        "url": "https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap",
+    },
+    "merriweather": {
+        "label": "📰 Merriweather — صحفي",
+        "value": "'Merriweather', serif",
+        "url": "https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap",
+    },
+    "playfair": {
+        "label": "👑 Playfair Display — ملكي",
+        "value": "'Playfair Display', serif",
+        "url": "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&display=swap",
+    },
+    "raleway": {
+        "label": "🎨 Raleway — إبداعي",
+        "value": "'Raleway', sans-serif",
+        "url": "https://fonts.googleapis.com/css2?family=Raleway:wght@400;700&display=swap",
+    },
+    "source_sans": {
+        "label": "📋 Source Sans 3 — أكاديمي",
+        "value": "'Source Sans 3', sans-serif",
+        "url": "https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;700&display=swap",
+    },
 }
 
-# دمج الكل (سيتم تصفيته حسب اللغة لاحقاً)
+# دمج الكل
 CUSTOM_FONTS = {**ARABIC_FONTS, **ENGLISH_FONTS}
 
 # تباعد الأسطر
@@ -257,19 +309,6 @@ PAGE_MARGINS = {
     "small":  {"label": "🔹 ضيقة (1.5 سم)", "value": "1.5cm"},
     "medium": {"label": "🔸 متوسطة (2.5 سم)", "value": "2.5cm"},
     "large":  {"label": "🔻 واسعة (3.5 سم)", "value": "3.5cm"},
-}
-
-# أنماط العنوان
-HEADER_STYLES = {
-    "classic": {"label": "🏛 كلاسيكي (أسود)", "color": "#000000", "size": "22px"},
-    "colored": {"label": "🎨 ملون (حسب التصميم)", "color": "auto", "size": "24px"},
-    "minimal": {"label": "⬜ بسيط (رمادي)", "color": "#4a5568", "size": "20px"},
-}
-
-# إظهار الترويسة
-SHOW_HEADER_FOOTER = {
-    "yes": {"label": "✅ نعم، أظهرها", "show": True},
-    "no":  {"label": "❌ لا، أخفها", "show": False},
 }
 
 # خيارات العمق
@@ -292,8 +331,6 @@ STATE_GUIDANCE = {
     "choosing_colors":      "🎨 من فضلك <b>اختر نظام الألوان</b> من الأزرار أعلاه.",
     "choosing_line_height": "📏 من فضلك <b>اختر تباعد الأسطر</b> من الأزرار أعلاه.",
     "choosing_page_margin": "📐 من فضلك <b>اختر هوامش الصفحة</b> من الأزرار أعلاه.",
-    "choosing_header_style":"🎯 من فضلك <b>اختر نمط العنوان الرئيسي</b> من الأزرار أعلاه.",
-    "choosing_show_header": "📰 من فضلك <b>اختر إظهار الترويسة والتذييل</b> من الأزرار أعلاه.",
     "asking_comparison":    "📊 من فضلك <b>اختر</b> من الأزرار أعلاه.",
     "entering_comparison":  "✏️ اكتب الشيئين اللذين تريد مقارنتهما.\nمثال: <code>Python مقابل Java</code>",
     "in_queue":             "👻 تقريرك في الطابور... أرسل /cancel لإلغاء.",
@@ -302,13 +339,11 @@ STATE_GUIDANCE = {
 
 # ------------------- دوال مساعدة -------------------
 def hex_to_rgb(hex_color):
-    """تحويل HEX إلى tuple RGB (للاستخدام المستقبلي)"""
     hex_color = hex_color.lstrip('#')
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
 
 def get_fonts_by_language(lang_key):
-    """إرجاع قائمة الخطوط المناسبة للغة المحددة"""
     if lang_key == "ar":
         return ARABIC_FONTS
     else:
@@ -322,7 +357,7 @@ def get_llm():
         raise Exception("GOOGLE_API_KEY not set")
     return ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
-        temperature=0.7,  # زيادة طفيفة لجعل النص أكثر طبيعية
+        temperature=0.7,
         google_api_key=api_key,
         max_retries=3
     )
@@ -347,7 +382,6 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
     answers = session.get("answers", [])
     custom_title = session.get("custom_title")
 
-    # حساب عدد الكلمات المستهدف
     target_pages = depth["pages"]
     words_per_page = depth["words_per_page"]
     target_words = target_pages * words_per_page
@@ -376,7 +410,6 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
             f"══════════════════════════════════════"
         )
 
-    # تعليمات طول التقرير وأسلوب الكتابة
     length_instruction = (
         f"\nLENGTH REQUIREMENTS:\n"
         f"- Target total word count: {target_words} words (range {min_words}-{max_words} words).\n"
@@ -391,8 +424,8 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
         f"- Vary sentence lengths: mix short, medium, and long sentences.\n"
         f"- Use appropriate punctuation and transitions.\n"
         f"- Avoid repetitive sentence structures.\n"
-        f"- The introduction should be concise: 3-5 sentences only. Engage the reader briefly.\n"
-        f"- The conclusion must be VERY SHORT: 2-3 sentences. It must fit on the same page as the last block, so keep it extremely concise.\n"
+        f"- The introduction MUST be VERY SHORT: 2-3 sentences only. No more.\n"
+        f"- The conclusion MUST be EXTREMELY SHORT: 1-2 sentences only. Just one final thought.\n"
     )
 
     table_instruction = (
@@ -439,20 +472,18 @@ PAGE FILLING:
 SPECIFIC NOTES:
 • No openers like "In this report" or "يتناول هذا التقرير". Start directly.
 • Paragraphs: strong claim → develop → twist or insight.
-• Introduction: 3-5 sentences only. Keep it brief.
-• Conclusion: 2-3 sentences only. It should provide a final thought, not a summary. It must fit on the same page, so keep it short.
+• Introduction: 2-3 sentences MAXIMUM. Be very brief.
+• Conclusion: 1-2 sentences ONLY. One final thought. Must fit on same page as last block.
 • ALL text in the specified language. Conclusion is MANDATORY.
 
 {format_instructions}"""
 
 
 def count_words(text: str) -> int:
-    """تقدير عدد الكلمات في النص"""
     return len(text.split())
 
 
 def generate_report(session: dict):
-    """توليد تقرير PDF مع التحكم في عدد الصفحات"""
     try:
         llm = get_llm()
         parser = PydanticOutputParser(pydantic_object=DynamicReport)
@@ -757,33 +788,29 @@ def render_html(report: DynamicReport, session: dict) -> str:
     is_custom = session.get("custom_mode", False)
     template_name = "_custom" if is_custom else session.get("template", "emerald")
 
+    # ---- تحديد الخط وعنوانه لـ Google Fonts ----
     if is_custom:
         colors = CUSTOM_COLORS[session.get("custom_color_key", "royal_blue")]
         p, a, bg, bg2 = colors["primary"], colors["accent"], colors["bg"], colors["bg2"]
         font_size = CUSTOM_FONT_SIZES[session.get("custom_font_size_key", "medium")]["size"]
-        font_key = session.get("custom_font_key", "traditional")
-        if language_key == "ar":
-            font = ARABIC_FONTS.get(font_key, ARABIC_FONTS["traditional"])["value"]
-        else:
-            font = ENGLISH_FONTS.get(font_key, ENGLISH_FONTS["arial"])["value"]
+        font_key = session.get("custom_font_key", "noto_naskh" if language_key == "ar" else "roboto")
+        font_data = CUSTOM_FONTS.get(font_key, ARABIC_FONTS["noto_naskh"] if language_key == "ar" else ENGLISH_FONTS["roboto"])
+        font = font_data["value"]
+        font_import_url = font_data["url"]
         line_height = LINE_HEIGHTS[session.get("custom_line_height", "normal")]["value"]
         page_margin = PAGE_MARGINS[session.get("custom_page_margin", "medium")]["value"]
-        header_style_key = session.get("custom_header_style", "colored")
-        header_color = HEADER_STYLES[header_style_key]["color"]
-        if header_color == "auto":
-            header_color = a
-        header_size = HEADER_STYLES[header_style_key]["size"]
-        show_hf = SHOW_HEADER_FOOTER[session.get("custom_show_header_footer", "yes")]["show"]
+        header_color = a
+        header_size = "24px"
     else:
         tc = TEMPLATES[template_name]
         p, a, bg, bg2 = tc["primary"], tc["accent"], tc["bg"], tc["bg2"]
         font_size = "16.5px"
         font = lang["font"]
+        font_import_url = lang["font_url"]
         line_height = "1.8"
         page_margin = "2.5cm"
         header_color = p
         header_size = "24px"
-        show_hf = True
 
     tc_dict = {"primary": p, "accent": a, "bg": bg, "bg2": bg2}
     dir_ = lang["dir"]
@@ -814,58 +841,9 @@ def render_html(report: DynamicReport, session: dict) -> str:
     )
     final_margin = page_margin if is_custom else page_margin_extra
 
-    # ترويسة وتذييل
-    gdir = "left" if is_rtl else "right"
-    if template_name == "professional":
-        prof_top = (
-            f'<div style="margin-bottom:24px;">'
-            f'<div style="height:5px;background:{p};"></div>'
-            f'<div style="height:2px;background:{a};margin-top:3px;"></div>'
-            f'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px 6px 4px;">'
-            f'<span style="font-size:11px;color:{a};font-weight:700;letter-spacing:2px;">تقرير أكاديمي رسمي</span>'
-            f'<span style="font-size:10px;color:#8b9bb4;letter-spacing:1px;">OFFICIAL ACADEMIC REPORT</span>'
-            f'</div><div style="height:1px;background:#d0dae8;"></div></div>'
-        )
-        prof_bot = (
-            f'<div style="margin-top:24px;">'
-            f'<div style="height:1px;background:#d0dae8;"></div>'
-            f'<div style="display:flex;justify-content:space-between;padding:6px 4px;">'
-            f'<span style="font-size:10px;color:#8b9bb4;">سري — للاستخدام الأكاديمي فقط</span>'
-            f'<span style="font-size:10px;color:#8b9bb4;">Confidential — Academic Use Only</span>'
-            f'</div>'
-            f'<div style="height:2px;background:{a};"></div>'
-            f'<div style="height:5px;background:{p};margin-top:3px;"></div></div>'
-        )
-    elif template_name == "royal":
-        prof_top = (
-            f'<div style="margin-bottom:22px;text-align:center;">'
-            f'<div style="height:4px;background:linear-gradient(to {gdir},{p},{a},{p});border-radius:2px;"></div>'
-            f'<div style="padding:8px 4px 5px;"><span style="font-size:12px;color:{a};font-weight:700;letter-spacing:3px;">✦ تقرير أكاديمي جامعي ✦</span></div>'
-            f'<div style="height:1px;background:{a};opacity:0.35;"></div></div>'
-        )
-        prof_bot = (
-            f'<div style="margin-top:22px;text-align:center;">'
-            f'<div style="height:1px;background:{a};opacity:0.35;"></div>'
-            f'<div style="padding:6px 4px;"><span style="font-size:11px;color:{a};letter-spacing:2px;">✦ إعداد أكاديمي رسمي — جميع الحقوق محفوظة ✦</span></div>'
-            f'<div style="height:4px;background:linear-gradient(to {gdir},{p},{a},{p});border-radius:2px;"></div></div>'
-        )
-    elif template_name == "_custom":
-        prof_top = (
-            f'<div style="margin-bottom:16px;">'
-            f'<div style="height:3px;background:linear-gradient(to {gdir},{p},{a},{p});border-radius:2px;"></div>'
-            f'</div>'
-        )
-        prof_bot = (
-            f'<div style="margin-top:16px;">'
-            f'<div style="height:3px;background:linear-gradient(to {gdir},{p},{a},{p});border-radius:2px;"></div>'
-            f'</div>'
-        )
-    else:
-        prof_top = prof_bot = ""
-
-    if not show_hf:
-        prof_top = ""
-        prof_bot = ""
+    # الترويسة والتذييل دائماً مخفيان
+    prof_top = ""
+    prof_bot = ""
 
     blocks_html = "\n".join(render_block(bl, tc_dict, lang) for bl in report.blocks)
 
@@ -873,6 +851,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
 <html lang="{lang['lang_attr']}" dir="{dir_}">
 <head>
 <meta charset="UTF-8">
+<link rel="stylesheet" href="{font_import_url}">
 <style>
   @page {{
     size: A4;
@@ -1002,18 +981,6 @@ def page_margin_keyboard():
         for k, v in PAGE_MARGINS.items()
     ])
 
-def header_style_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(v["label"], callback_data=f"hs_{k}")]
-        for k, v in HEADER_STYLES.items()
-    ])
-
-def show_header_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(v["label"], callback_data=f"sh_{k}")]
-        for k, v in SHOW_HEADER_FOOTER.items()
-    ])
-
 def comparison_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 نعم، أضف جدول مقارنة!", callback_data="comp_yes")],
@@ -1055,7 +1022,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"3️⃣ أجب على أسئلتي الذكية 🧠\n"
         f"4️⃣ اختر العمق والتصميم:\n"
         f"   • 🎭 <b>قوالب جاهزة</b> — 6 قوالب احترافية\n"
-        f"   • 🎨 <b>تخصيص كامل</b> — خط، ألوان، مقارنة خاصة ✨\n"
+        f"   • 🎨 <b>تخصيص كامل</b> — خط حقيقي، ألوان، مقارنة خاصة ✨\n"
         f"5️⃣ استلم تقريرك PDF! 🎉\n\n"
         f"👻 <b>أرسل موضوع تقريرك الآن!</b>",
         parse_mode='HTML'
@@ -1206,7 +1173,7 @@ async def depth_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ <b>العمق:</b> {DEPTH_OPTIONS[depth]['name']}\n\n"
         "🎨 <b>كيف تريد تصميم تقريرك؟</b>\n\n"
         "🎭 <b>قوالب جاهزة</b> — 6 قوالب احترافية جاهزة للاستخدام\n"
-        "✨ <b>تخصيص كامل</b> — اختر الخط، الألوان، وأضف مقارنة خاصة",
+        "✨ <b>تخصيص كامل</b> — اختر الخط الحقيقي، الألوان، وأضف مقارنة خاصة",
         reply_markup=style_mode_keyboard(), parse_mode='HTML'
     )
 
@@ -1231,18 +1198,17 @@ async def style_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=template_keyboard(), parse_mode='HTML'
         )
     else:
+        lang_key = session.get("language", "ar")
         session["custom_mode"] = True
         session["custom_font_size_key"] = "medium"
-        session["custom_font_key"] = "traditional" if session.get("language", "ar") == "ar" else "arial"
+        session["custom_font_key"] = "noto_naskh" if lang_key == "ar" else "roboto"
         session["custom_color_key"] = "royal_blue"
         session["custom_line_height"] = "normal"
         session["custom_page_margin"] = "medium"
-        session["custom_header_style"] = "colored"
-        session["custom_show_header_footer"] = "yes"
         session["state"] = "choosing_font_size"
         await query.edit_message_text(
             "🎨 <b>رحلة التخصيص بدأت! 👻</b>\n\n"
-            "📐 <b>الخطوة 1 من 6 — حجم الخط:</b>\n"
+            "📐 <b>الخطوة 1 من 5 — حجم الخط:</b>\n"
             "اختر الحجم الذي يريح عينيك 👇",
             reply_markup=font_size_keyboard(), parse_mode='HTML'
         )
@@ -1265,8 +1231,8 @@ async def font_size_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang_key = session.get("language", "ar")
     await query.edit_message_text(
         f"✅ <b>الحجم:</b> {CUSTOM_FONT_SIZES[key]['label']}\n\n"
-        "✍️ <b>الخطوة 2 من 6 — نوع الخط:</b>\n"
-        "اختر الخط المناسب 👇",
+        "✍️ <b>الخطوة 2 من 5 — نوع الخط:</b>\n"
+        "اختر الخط المناسب لتقريرك 👇",
         reply_markup=font_keyboard_for_language(lang_key), parse_mode='HTML'
     )
 
@@ -1287,7 +1253,7 @@ async def font_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["state"] = "choosing_colors"
     await query.edit_message_text(
         f"✅ <b>الخط:</b> {CUSTOM_FONTS[key]['label']}\n\n"
-        "🎨 <b>الخطوة 3 من 6 — نظام الألوان:</b>\n"
+        "🎨 <b>الخطوة 3 من 5 — نظام الألوان:</b>\n"
         "اختر الروح البصرية لتقريرك 👇",
         reply_markup=colors_keyboard(), parse_mode='HTML'
     )
@@ -1309,7 +1275,7 @@ async def colors_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["state"] = "choosing_line_height"
     await query.edit_message_text(
         f"✅ <b>الألوان:</b> {CUSTOM_COLORS[key]['label']}\n\n"
-        "📏 <b>الخطوة 4 من 6 — تباعد الأسطر:</b>\n"
+        "📏 <b>الخطوة 4 من 5 — تباعد الأسطر:</b>\n"
         "اختر المسافة بين السطور 👇",
         reply_markup=line_height_keyboard(), parse_mode='HTML'
     )
@@ -1331,7 +1297,7 @@ async def line_height_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     session["state"] = "choosing_page_margin"
     await query.edit_message_text(
         f"✅ <b>تباعد الأسطر:</b> {LINE_HEIGHTS[key]['label']}\n\n"
-        "📐 <b>الخطوة 5 من 6 — هوامش الصفحة:</b>\n"
+        "📐 <b>الخطوة 5 من 5 — هوامش الصفحة:</b>\n"
         "اختر حجم الهوامش 👇",
         reply_markup=page_margin_keyboard(), parse_mode='HTML'
     )
@@ -1350,52 +1316,9 @@ async def page_margin_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     session = user_sessions[user_id]
     session["custom_page_margin"] = key
-    session["state"] = "choosing_header_style"
-    await query.edit_message_text(
-        f"✅ <b>الهوامش:</b> {PAGE_MARGINS[key]['label']}\n\n"
-        "🎯 <b>الخطوة 6 من 6 — نمط العنوان الرئيسي:</b>\n"
-        "اختر شكل العنوان 👇",
-        reply_markup=header_style_keyboard(), parse_mode='HTML'
-    )
-
-
-async def header_style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    key = query.data.replace("hs_", "")
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية.")
-        return
-    if user_sessions[user_id].get("state") != "choosing_header_style":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
-        return
-    session = user_sessions[user_id]
-    session["custom_header_style"] = key
-    session["state"] = "choosing_show_header"
-    await query.edit_message_text(
-        f"✅ <b>نمط العنوان:</b> {HEADER_STYLES[key]['label']}\n\n"
-        "📰 <b>هل تريد إظهار الترويسة والتذييل؟</b>",
-        reply_markup=show_header_keyboard(), parse_mode='HTML'
-    )
-
-
-async def show_header_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    key = query.data.replace("sh_", "")
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية.")
-        return
-    if user_sessions[user_id].get("state") != "choosing_show_header":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
-        return
-    session = user_sessions[user_id]
-    session["custom_show_header_footer"] = key
     session["state"] = "asking_comparison"
     await query.edit_message_text(
-        f"✅ <b>الترويسة:</b> {SHOW_HEADER_FOOTER[key]['label']}\n\n"
+        f"✅ <b>الهوامش:</b> {PAGE_MARGINS[key]['label']}\n\n"
         "📊 <b>هل تريد إضافة جدول مقارنة خاص في التقرير؟</b>\n"
         "<i>مثال: مقارنة Python مع Java، أو الطاقة الشمسية مع النووية...</i>",
         reply_markup=comparison_keyboard(), parse_mode='HTML'
@@ -1457,11 +1380,13 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[user_id]
     session["template"] = tpl
     session["custom_mode"] = False
-    session["state"] = "in_queue"
-    pos = report_queue.qsize() + 1
-    queue_positions[user_id] = pos
-    await query.edit_message_text(build_queue_text(session, pos), parse_mode='HTML')
-    await report_queue.put((user_id, session.copy(), query.message.message_id))
+    session["state"] = "asking_comparison"
+    await query.edit_message_text(
+        f"✅ <b>القالب:</b> {TEMPLATES[tpl]['name']}\n\n"
+        "📊 <b>هل تريد إضافة جدول مقارنة خاص في التقرير؟</b>\n"
+        "<i>مثال: مقارنة Python مع Java، أو الطاقة الشمسية مع النووية...</i>",
+        reply_markup=comparison_keyboard(), parse_mode='HTML'
+    )
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1502,25 +1427,23 @@ if __name__ == '__main__':
         app.add_handler(CommandHandler('cancel', cancel))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-        app.add_handler(CallbackQueryHandler(title_auto_callback, pattern=r'^title_auto$'))
-        app.add_handler(CallbackQueryHandler(language_callback, pattern=r'^lang_'))
-        app.add_handler(CallbackQueryHandler(depth_callback, pattern=r'^depth_'))
-        app.add_handler(CallbackQueryHandler(style_mode_callback, pattern=r'^style_'))
-        app.add_handler(CallbackQueryHandler(template_callback, pattern=r'^tpl_'))
-        app.add_handler(CallbackQueryHandler(font_size_callback, pattern=r'^fsize_'))
-        app.add_handler(CallbackQueryHandler(font_callback, pattern=r'^cfont_'))
-        app.add_handler(CallbackQueryHandler(colors_callback, pattern=r'^color_'))
+        app.add_handler(CallbackQueryHandler(title_auto_callback,  pattern=r'^title_auto$'))
+        app.add_handler(CallbackQueryHandler(language_callback,    pattern=r'^lang_'))
+        app.add_handler(CallbackQueryHandler(depth_callback,       pattern=r'^depth_'))
+        app.add_handler(CallbackQueryHandler(style_mode_callback,  pattern=r'^style_'))
+        app.add_handler(CallbackQueryHandler(template_callback,    pattern=r'^tpl_'))
+        app.add_handler(CallbackQueryHandler(font_size_callback,   pattern=r'^fsize_'))
+        app.add_handler(CallbackQueryHandler(font_callback,        pattern=r'^cfont_'))
+        app.add_handler(CallbackQueryHandler(colors_callback,      pattern=r'^color_'))
         app.add_handler(CallbackQueryHandler(line_height_callback, pattern=r'^lh_'))
         app.add_handler(CallbackQueryHandler(page_margin_callback, pattern=r'^pm_'))
-        app.add_handler(CallbackQueryHandler(header_style_callback, pattern=r'^hs_'))
-        app.add_handler(CallbackQueryHandler(show_header_callback, pattern=r'^sh_'))
-        app.add_handler(CallbackQueryHandler(comp_yes_callback, pattern=r'^comp_yes$'))
-        app.add_handler(CallbackQueryHandler(comp_no_callback, pattern=r'^comp_no$'))
+        app.add_handler(CallbackQueryHandler(comp_yes_callback,    pattern=r'^comp_yes$'))
+        app.add_handler(CallbackQueryHandler(comp_no_callback,     pattern=r'^comp_no$'))
         app.add_error_handler(error_handler)
 
-        logger.info("👻 Repooreto Bot v5.4 Ready!")
+        logger.info("👻 Repooreto Bot v5.5 Ready!")
         print("=" * 60)
-        print("👻 Repooreto — Smart University Reports Bot v5.4")
+        print("👻 Repooreto — Smart University Reports Bot v5.5")
         print("=" * 60)
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
