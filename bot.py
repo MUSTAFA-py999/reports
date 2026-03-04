@@ -16,11 +16,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from io import BytesIO
 from weasyprint import HTML as WeasyHTML
-from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-import re
 
+# ------------------- الإعدادات الأساسية -------------------
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -31,24 +28,22 @@ flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "✅ Repooreto Bot v5.2"
+    return "✅ Repooreto Bot v5.4"
 
 @flask_app.route('/health')
 def health():
-    return {"status": "healthy", "version": "5.2"}, 200
+    return {"status": "healthy", "version": "5.4"}, 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
-# ═══════════════════════════════════════════════════
-# QUEUE SYSTEM
-# ═══════════════════════════════════════════════════
+# ------------------- نظام الطابور -------------------
 report_queue: asyncio.Queue = None
-active_jobs    = {}
+active_jobs = {}
 queue_positions = {}
-MAX_CONCURRENT  = 2
+MAX_CONCURRENT = 2
 
 
 async def queue_worker(app):
@@ -62,35 +57,25 @@ async def queue_worker(app):
                     queue_positions[uid] -= 1
             try:
                 loop = asyncio.get_event_loop()
-                # اختيار الصيغة المطلوبة
-                file_format = session.get("file_format", "pdf")
-                if file_format == "pdf":
-                    pdf_bytes, title = await loop.run_in_executor(None, generate_report, session)
-                    file_bytes = pdf_bytes
-                    extension = "pdf"
-                else:
-                    docx_bytes, title = await loop.run_in_executor(None, generate_word_report, session)
-                    file_bytes = docx_bytes
-                    extension = "docx"
+                pdf_bytes, title = await loop.run_in_executor(None, generate_report, session)
 
-                lang_name  = LANGUAGES[session.get("language", "ar")]["name"]
+                lang_name = LANGUAGES[session.get("language", "ar")]["name"]
                 depth_name = DEPTH_OPTIONS[session.get("depth", "medium")]["name"]
-                tpl_name   = "🎨 مخصص" if session.get("custom_mode") else TEMPLATES.get(session.get("template", "emerald"), {}).get("name", "")
+                tpl_name = "🎨 مخصص" if session.get("custom_mode") else TEMPLATES.get(session.get("template", "emerald"), {}).get("name", "")
 
-                if file_bytes:
-                    safe_name  = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:40])
-                    safe_title = title.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
+                if pdf_bytes:
+                    safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:40])
+                    safe_title = title.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
                     caption = (
                         f"👻 <b>تقريرك جاهز يا طالبنا!</b>\n\n"
                         f"📄 <b>{safe_title}</b>\n"
-                        f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n"
-                        f"📁 الصيغة: {file_format.upper()}\n\n"
+                        f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
                         f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
                     )
                     await app.bot.send_document(
                         chat_id=user_id,
-                        document=BytesIO(file_bytes),
-                        filename=f"{safe_name}.{extension}",
+                        document=BytesIO(pdf_bytes),
+                        filename=f"{safe_name}.pdf",
                         caption=caption,
                         parse_mode='HTML'
                     )
@@ -98,9 +83,9 @@ async def queue_worker(app):
                         await app.bot.delete_message(chat_id=user_id, message_id=msg_id)
                     except Exception:
                         pass
-                    logger.info(f"✅ Report sent to {user_id} as {extension}")
+                    logger.info(f"✅ Report sent to {user_id}")
                 else:
-                    err = str(title).replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
+                    err = str(title).replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
                     await app.bot.send_message(
                         chat_id=user_id,
                         text=f"❌ <b>فشل إنشاء التقرير:</b>\n{err[:300]}\n\n🔄 أرسل موضوعاً جديداً.",
@@ -108,7 +93,7 @@ async def queue_worker(app):
                     )
             except Exception as e:
                 logger.error(f"Queue worker error for {user_id}: {e}", exc_info=True)
-                err = str(e)[:200].replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
+                err = str(e)[:200].replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
                 await app.bot.send_message(
                     chat_id=user_id,
                     text=f"❌ <b>خطأ غير متوقع:</b>\n<code>{err}</code>\n\n🔄 أرسل موضوعاً جديداً.",
@@ -126,9 +111,7 @@ async def queue_worker(app):
         report_queue.task_done()
 
 
-# ═══════════════════════════════════════════════════
-# PYDANTIC MODELS
-# ═══════════════════════════════════════════════════
+# ------------------- نماذج Pydantic -------------------
 class SmartQuestions(BaseModel):
     questions: List[str] = Field(
         description="List of open-ended questions (2-5) to ask the student about their report."
@@ -142,35 +125,35 @@ class ReportBlock(BaseModel):
         )
     )
     title: str = Field(description="Section heading")
-    style: Optional[str]               = Field(default=None, description="pros_cons style: A/B/C/D")
-    text:  Optional[str]               = Field(default=None)
-    items: Optional[List[str]]         = Field(default=None)
-    pros:  Optional[List[str]]         = Field(default=None)
-    cons:  Optional[List[str]]         = Field(default=None)
-    headers:      Optional[List[str]]  = Field(default=None)
-    rows:         Optional[List[List[str]]] = Field(default=None)
-    side_a:       Optional[str]        = Field(default=None)
-    side_b:       Optional[str]        = Field(default=None)
-    criteria:     Optional[List[str]]  = Field(default=None)
-    side_a_values:Optional[List[str]]  = Field(default=None)
-    side_b_values:Optional[List[str]]  = Field(default=None)
+    style: Optional[str] = Field(default=None, description="pros_cons style: A/B/C/D")
+    text: Optional[str] = Field(default=None)
+    items: Optional[List[str]] = Field(default=None)
+    pros: Optional[List[str]] = Field(default=None)
+    cons: Optional[List[str]] = Field(default=None)
+    headers: Optional[List[str]] = Field(default=None)
+    rows: Optional[List[List[str]]] = Field(default=None)
+    side_a: Optional[str] = Field(default=None)
+    side_b: Optional[str] = Field(default=None)
+    criteria: Optional[List[str]] = Field(default=None)
+    side_a_values: Optional[List[str]] = Field(default=None)
+    side_b_values: Optional[List[str]] = Field(default=None)
 
 class DynamicReport(BaseModel):
-    title:        str              = Field(description="Report title")
-    introduction: str              = Field(description="Introduction: 3-5 sentences. Direct and engaging.")
-    blocks:       List[ReportBlock]= Field(description="Content blocks")
-    conclusion:   str              = Field(description="Conclusion: 4-6 sentences. Genuine insight. MANDATORY.")
+    title: str = Field(description="Report title")
+    introduction: str = Field(description="Introduction: 3-5 sentences. Direct and engaging.")
+    blocks: List[ReportBlock] = Field(description="Content blocks")
+    conclusion: str = Field(description="Conclusion: 2-3 sentences. Must fit on same page.")
 
 
-# ═══════════════════════════════════════════════════
-# CONFIG
-# ═══════════════════════════════════════════════════
+# ------------------- الإعدادات والتكوين -------------------
 user_sessions = {}
 
 LANGUAGES = {
     "ar": {
         "name": "🇸🇦 العربية",
-        "dir": "rtl", "align": "right", "lang_attr": "ar",
+        "dir": "rtl",
+        "align": "right",
+        "lang_attr": "ar",
         "font": "'Traditional Arabic', 'Arial', sans-serif",
         "intro_label": "المقدمة",
         "conclusion_label": "الخاتمة",
@@ -189,7 +172,9 @@ LANGUAGES = {
     },
     "en": {
         "name": "🇬🇧 English",
-        "dir": "ltr", "align": "left", "lang_attr": "en",
+        "dir": "ltr",
+        "align": "left",
+        "lang_attr": "en",
         "font": "'Arial', 'Helvetica', sans-serif",
         "intro_label": "Introduction",
         "conclusion_label": "Conclusion",
@@ -208,7 +193,7 @@ LANGUAGES = {
     },
 }
 
-# ── قوالب جاهزة ──
+# قوالب جاهزة
 TEMPLATES = {
     "emerald":      {"name": "🌿 زمردي",     "primary": "#1a4731", "accent": "#52b788", "bg": "#f0faf4", "bg2": "#ffffff"},
     "modern":       {"name": "🚀 عصري",      "primary": "#5a67d8", "accent": "#667eea", "bg": "#ebf4ff", "bg2": "#ffffff"},
@@ -218,11 +203,11 @@ TEMPLATES = {
     "royal":        {"name": "👑 ملكي ذهبي", "primary": "#5b0e2d", "accent": "#c9a227", "bg": "#fdf6e3", "bg2": "#fff9f0"},
 }
 
-# ── خيارات التخصيص ──
+# ألوان مخصصة
 CUSTOM_COLORS = {
     "royal_blue": {"label": "🔵 أزرق ملكي",    "primary": "#1a365d", "accent": "#3182ce", "bg": "#ebf8ff", "bg2": "#ffffff"},
-    "emerald_g":  {"label": "🌿 زمردي",         "primary": "#1a4731", "accent": "#38a169", "bg": "#f0fff4", "bg2": "#ffffff"},
-    "purple":     {"label": "💜 بنفسجي",        "primary": "#44337a", "accent": "#805ad5", "bg": "#faf5ff", "bg2": "#ffffff"},
+    "emerald_g":  {"label": "🌿 زمردي",        "primary": "#1a4731", "accent": "#38a169", "bg": "#f0fff4", "bg2": "#ffffff"},
+    "purple":     {"label": "💜 بنفسجي",       "primary": "#44337a", "accent": "#805ad5", "bg": "#faf5ff", "bg2": "#ffffff"},
     "orange":     {"label": "🟠 برتقالي دافئ", "primary": "#7b341e", "accent": "#dd6b20", "bg": "#fffaf0", "bg2": "#ffffff"},
     "slate":      {"label": "⚫ رمادي راقٍ",   "primary": "#1a202c", "accent": "#718096", "bg": "#f7fafc", "bg2": "#ffffff"},
     "crimson":    {"label": "🔴 أحمر كلاسيك",  "primary": "#742a2a", "accent": "#c53030", "bg": "#fff5f5", "bg2": "#ffffff"},
@@ -230,7 +215,7 @@ CUSTOM_COLORS = {
     "gold":       {"label": "✨ ذهبي ملكي",    "primary": "#5b0e2d", "accent": "#c9a227", "bg": "#fdf6e3", "bg2": "#fff9f0"},
 }
 
-# ── خيارات حجم الخط ──
+# أحجام الخطوط
 CUSTOM_FONT_SIZES = {
     "xsmall": {"label": "🔹 صغير جداً (12px)", "size": "12px"},
     "small":  {"label": "🔸 صغير (14px)",      "size": "14px"},
@@ -239,12 +224,16 @@ CUSTOM_FONT_SIZES = {
     "xlarge": {"label": "🔹 كبير جداً (20px)", "size": "20px"},
 }
 
-# ── خيارات نوع الخط ──
-CUSTOM_FONTS = {
+# خطوط عربية
+ARABIC_FONTS = {
     "traditional": {"label": "📜 تقليدي",        "value": "'Traditional Arabic', serif"},
     "amiri":       {"label": "🕌 أميري",          "value": "'Amiri', serif"},
     "cairo":       {"label": "🏙 كايرو",          "value": "'Cairo', sans-serif"},
     "tajawal":     {"label": "✍️ تجوّل",         "value": "'Tajawal', sans-serif"},
+}
+
+# خطوط إنجليزية
+ENGLISH_FONTS = {
     "arial":       {"label": "🔤 Arial",          "value": "Arial, sans-serif"},
     "georgia":     {"label": "📰 Georgia",        "value": "Georgia, serif"},
     "times":       {"label": "📋 Times New Roman","value": "'Times New Roman', serif"},
@@ -253,45 +242,44 @@ CUSTOM_FONTS = {
     "open-sans":   {"label": "✉️ Open Sans",      "value": "'Open Sans', sans-serif"},
 }
 
-# ── خيارات تباعد الأسطر ──
+# دمج الكل (سيتم تصفيته حسب اللغة لاحقاً)
+CUSTOM_FONTS = {**ARABIC_FONTS, **ENGLISH_FONTS}
+
+# تباعد الأسطر
 LINE_HEIGHTS = {
     "compact": {"label": "📏 مضغوط (1.5)", "value": "1.5"},
     "normal":  {"label": "📐 عادي (1.8)",   "value": "1.8"},
     "relaxed": {"label": "📏 واسع (2.2)",   "value": "2.2"},
 }
 
-# ── خيارات هوامش الصفحة ──
+# هوامش الصفحة
 PAGE_MARGINS = {
     "small":  {"label": "🔹 ضيقة (1.5 سم)", "value": "1.5cm"},
     "medium": {"label": "🔸 متوسطة (2.5 سم)", "value": "2.5cm"},
     "large":  {"label": "🔻 واسعة (3.5 سم)", "value": "3.5cm"},
 }
 
-# ── خيارات نمط العنوان الرئيسي ──
+# أنماط العنوان
 HEADER_STYLES = {
     "classic": {"label": "🏛 كلاسيكي (أسود)", "color": "#000000", "size": "22px"},
     "colored": {"label": "🎨 ملون (حسب التصميم)", "color": "auto", "size": "24px"},
     "minimal": {"label": "⬜ بسيط (رمادي)", "color": "#4a5568", "size": "20px"},
 }
 
-# ── خيارات إظهار الترويسة والتذييل ──
+# إظهار الترويسة
 SHOW_HEADER_FOOTER = {
     "yes": {"label": "✅ نعم، أظهرها", "show": True},
     "no":  {"label": "❌ لا، أخفها", "show": False},
 }
 
-# ── خيارات صيغة الملف ──
-FILE_FORMATS = {
-    "pdf": {"label": "📄 PDF", "emoji": "📄"},
-    "word": {"label": "📝 Word (DOCX)", "emoji": "📝"},
-}
-
+# خيارات العمق
 DEPTH_OPTIONS = {
-    "medium":   {"name": "📄 متوسط (3-4 صفحات)", "pages": 4,  "blocks_min": 5,  "blocks_max": 7},
-    "detailed": {"name": "📚 مفصل (5-6 صفحات)",  "pages": 6,  "blocks_min": 7,  "blocks_max": 10},
-    "extended": {"name": "📖 موسّع (7+ صفحات)",   "pages": 8,  "blocks_min": 10, "blocks_max": 14},
+    "medium":   {"name": "📄 متوسط (3-4 صفحات)", "pages": 4,  "words_per_page": 400, "blocks_min": 5,  "blocks_max": 7},
+    "detailed": {"name": "📚 مفصل (5-6 صفحات)",  "pages": 6,  "words_per_page": 400, "blocks_min": 7,  "blocks_max": 10},
+    "extended": {"name": "📖 موسّع (7+ صفحات)",   "pages": 8,  "words_per_page": 400, "blocks_min": 10, "blocks_max": 14},
 }
 
+# إرشادات الحالات
 STATE_GUIDANCE = {
     "choosing_lang":        "🌐 من فضلك <b>اختر اللغة</b> من الأزرار أعلاه.",
     "generating_questions": "👻 الشبح يحلل موضوعك... انتظر لحظة.",
@@ -306,31 +294,43 @@ STATE_GUIDANCE = {
     "choosing_page_margin": "📐 من فضلك <b>اختر هوامش الصفحة</b> من الأزرار أعلاه.",
     "choosing_header_style":"🎯 من فضلك <b>اختر نمط العنوان الرئيسي</b> من الأزرار أعلاه.",
     "choosing_show_header": "📰 من فضلك <b>اختر إظهار الترويسة والتذييل</b> من الأزرار أعلاه.",
-    "choosing_file_format": "📁 من فضلك <b>اختر صيغة الملف</b> من الأزرار أعلاه.",
     "asking_comparison":    "📊 من فضلك <b>اختر</b> من الأزرار أعلاه.",
     "entering_comparison":  "✏️ اكتب الشيئين اللذين تريد مقارنتهما.\nمثال: <code>Python مقابل Java</code>",
     "in_queue":             "👻 تقريرك في الطابور... أرسل /cancel لإلغاء.",
 }
 
 
-# ═══════════════════════════════════════════════════
-# LLM HELPERS
-# ═══════════════════════════════════════════════════
+# ------------------- دوال مساعدة -------------------
+def hex_to_rgb(hex_color):
+    """تحويل HEX إلى tuple RGB (للاستخدام المستقبلي)"""
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def get_fonts_by_language(lang_key):
+    """إرجاع قائمة الخطوط المناسبة للغة المحددة"""
+    if lang_key == "ar":
+        return ARABIC_FONTS
+    else:
+        return ENGLISH_FONTS
+
+
+# ------------------- دوال LLM -------------------
 def get_llm():
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise Exception("GOOGLE_API_KEY not set")
     return ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
-        temperature=0.5,
+        temperature=0.7,  # زيادة طفيفة لجعل النص أكثر طبيعية
         google_api_key=api_key,
         max_retries=3
     )
 
 
 def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
-    lang   = LANGUAGES[language_key]
-    llm    = get_llm()
+    lang = LANGUAGES[language_key]
+    llm = get_llm()
     parser = PydanticOutputParser(pydantic_object=SmartQuestions)
     prompt = lang["q_prompt"].format(topic=topic) + "\n\n" + parser.get_format_instructions()
     result = llm.invoke([HumanMessage(content=prompt)])
@@ -338,14 +338,21 @@ def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
 
 
 def build_report_prompt(session: dict, format_instructions: str) -> str:
-    topic        = session["topic"]
-    lang_key     = session.get("language", "ar")
-    depth        = session.get("depth", "medium")
-    lang         = LANGUAGES[lang_key]
-    d            = DEPTH_OPTIONS[depth]
-    questions    = session.get("dynamic_questions", [])
-    answers      = session.get("answers", [])
+    topic = session["topic"]
+    lang_key = session.get("language", "ar")
+    depth_key = session.get("depth", "medium")
+    lang = LANGUAGES[lang_key]
+    depth = DEPTH_OPTIONS[depth_key]
+    questions = session.get("dynamic_questions", [])
+    answers = session.get("answers", [])
     custom_title = session.get("custom_title")
+
+    # حساب عدد الكلمات المستهدف
+    target_pages = depth["pages"]
+    words_per_page = depth["words_per_page"]
+    target_words = target_pages * words_per_page
+    min_words = int(target_words * 0.9)
+    max_words = int(target_words * 1.1)
 
     title_instruction = (
         f'TITLE: Use EXACTLY this title: "{custom_title}" — do not change it.'
@@ -364,17 +371,35 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
             f"MANDATORY COMPARISON BLOCK — DO NOT SKIP:\n"
             f"You MUST include a 'comparison' block that compares: {cq}\n"
             f"- Set side_a and side_b to the two items\n"
-            f"- Include 5-6 meaningful criteria\n"
+            f"- Include 4-6 meaningful criteria (max 6)\n"
             f"- Place this block in the middle of the report\n"
             f"══════════════════════════════════════"
         )
 
-    # تعليمات إضافية لمنع انقسام الجداول عبر الصفحات
+    # تعليمات طول التقرير وأسلوب الكتابة
+    length_instruction = (
+        f"\nLENGTH REQUIREMENTS:\n"
+        f"- Target total word count: {target_words} words (range {min_words}-{max_words} words).\n"
+        f"- This is equivalent to approximately {target_pages} A4 pages with normal formatting.\n"
+        f"- Adjust the content length accordingly. Do NOT exceed {max_words} words.\n"
+        f"- If you need to reduce words, shorten paragraphs or reduce examples, but keep all required sections.\n"
+    )
+
+    human_style_instruction = (
+        f"\nWRITING STYLE:\n"
+        f"- Write in a natural, human-like academic style.\n"
+        f"- Vary sentence lengths: mix short, medium, and long sentences.\n"
+        f"- Use appropriate punctuation and transitions.\n"
+        f"- Avoid repetitive sentence structures.\n"
+        f"- The introduction should be concise: 3-5 sentences only. Engage the reader briefly.\n"
+        f"- The conclusion must be VERY SHORT: 2-3 sentences. It must fit on the same page as the last block, so keep it extremely concise.\n"
+    )
+
     table_instruction = (
-        "\n\nIMPORTANT: For any table, comparison, or stats block, "
-        "limit the number of rows to MAXIMUM 6 to ensure the entire table fits on one page. "
-        "If you need more data, split into multiple blocks or use a different block type. "
-        "NEVER let a table break across pages."
+        f"\nTABLE REQUIREMENTS:\n"
+        f"- For any table (including comparison, stats, pros_cons), limit rows to MAXIMUM 6.\n"
+        f"- Ensure the entire table fits on one page. If it might split, reduce rows.\n"
+        f"- Never let a table break across pages.\n"
     )
 
     return f"""You are a skilled academic writer. Write a university report that feels GENUINELY HUMAN-WRITTEN.
@@ -383,8 +408,8 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
 TOPIC: {topic}
 LANGUAGE: {lang["instruction"]}
 {title_instruction}
-TARGET: {d["pages"]} A4 pages — approximately {d["pages"] * 400} words total.
-SECTIONS: {d["blocks_min"]} to {d["blocks_max"]} content blocks.
+{length_instruction}
+SECTIONS: {depth["blocks_min"]} to {depth["blocks_max"]} content blocks.
 ══════════════════════════════════════
 
 STUDENT'S REQUIREMENTS:
@@ -397,164 +422,92 @@ BLOCK TYPES:
 - "bullets"       → "items": 5-7. 40% with " — " sub-note, 60% standalone.
 - "numbered_list" → "items": 5-7. Same rule.
 - "table"         → "headers" + "rows" (max 6 rows). Max 2 per report.
-- "pros_cons"     → "pros": 4-5, "cons": 4-5. Style A/B/C/D. NEVER on half-empty page.
-- "comparison"    → side_a, side_b, criteria 5-6 (max 6 rows). Max 2 per report.
-- "stats"         → "items": 5-6. "Label: value — context". Max 6 rows.
+- "pros_cons"     → "pros": 4-5, "cons": 4-5. Style A/B/C/D.
+- "comparison"    → side_a, side_b, criteria 4-6 (max 6 rows). Max 2 per report.
+- "stats"         → "items": 5-6. "Label: value — context". Max 6 items.
 - "examples"      → "items": 5-6.
 - "quote"         → "text": 2-3 sharp sentences.
 
 {table_instruction}
+{human_style_instruction}
 
-PAGE FILLING (font is large — fills fast):
-• After short block → NEXT must be paragraph 150-200 words.
-• Never two consecutive short blocks.
+PAGE FILLING:
+• After a short block, the next block MUST be a paragraph of 150-200 words.
+• Never place two consecutive short blocks.
 • 45% paragraphs | 35% lists | 20% tables (max 2 total).
 
-STYLE:
-• No openers: "يتناول" / "In this report" FORBIDDEN.
-• Paragraphs: strong claim → develop → twist.
-• Conclusion: unexpected forward-looking angle. NOT a summary.
+SPECIFIC NOTES:
+• No openers like "In this report" or "يتناول هذا التقرير". Start directly.
+• Paragraphs: strong claim → develop → twist or insight.
+• Introduction: 3-5 sentences only. Keep it brief.
+• Conclusion: 2-3 sentences only. It should provide a final thought, not a summary. It must fit on the same page, so keep it short.
+• ALL text in the specified language. Conclusion is MANDATORY.
 
-ALL text in specified language. Conclusion MANDATORY.
 {format_instructions}"""
 
 
+def count_words(text: str) -> int:
+    """تقدير عدد الكلمات في النص"""
+    return len(text.split())
+
+
 def generate_report(session: dict):
+    """توليد تقرير PDF مع التحكم في عدد الصفحات"""
     try:
-        llm    = get_llm()
+        llm = get_llm()
         parser = PydanticOutputParser(pydantic_object=DynamicReport)
         prompt = build_report_prompt(session, parser.get_format_instructions())
-        report = None
+
+        best_report = None
+        best_diff = float('inf')
+
         for attempt in range(3):
             try:
                 result = llm.invoke([HumanMessage(content=prompt)])
                 report = parser.parse(result.content)
-                break
+
+                total_words = (
+                    count_words(report.title) +
+                    count_words(report.introduction) +
+                    sum(count_words(block.text or "") for block in report.blocks if block.block_type == "paragraph") +
+                    sum(len(block.items or []) for block in report.blocks if block.block_type in ("bullets", "numbered_list", "stats", "examples")) +
+                    sum(len(block.pros or []) + len(block.cons or []) for block in report.blocks if block.block_type == "pros_cons") +
+                    sum(len(block.rows or []) * len(block.headers or []) for block in report.blocks if block.block_type == "table") +
+                    sum(len(block.criteria or []) for block in report.blocks if block.block_type == "comparison") +
+                    count_words(report.conclusion)
+                )
+
+                depth_key = session.get("depth", "medium")
+                target_pages = DEPTH_OPTIONS[depth_key]["pages"]
+                words_per_page = DEPTH_OPTIONS[depth_key]["words_per_page"]
+                expected_words = target_pages * words_per_page
+                diff = abs(total_words - expected_words)
+
+                if diff < best_diff:
+                    best_diff = diff
+                    best_report = report
+
+                if diff <= expected_words * 0.1:
+                    break
+
             except Exception as e:
+                logger.warning(f"Parse attempt {attempt+1} failed: {e}")
                 if attempt == 2:
                     raise e
-                logger.warning(f"Parse attempt {attempt+1} failed: {e}")
-        html_str  = render_html(report, session)
+
+        if best_report is None:
+            raise Exception("Failed to generate valid report")
+
+        html_str = render_html(best_report, session)
         pdf_bytes = WeasyHTML(string=html_str).write_pdf()
-        return pdf_bytes, report.title
+        return pdf_bytes, best_report.title
+
     except Exception as e:
         logger.error(f"❌ generate_report: {e}", exc_info=True)
         return None, str(e)
 
 
-def generate_word_report(session: dict):
-    """
-    توليد تقرير بصيغة Word باستخدام python-docx.
-    """
-    try:
-        # أولاً نولد التقرير النصي باستخدام LLM (نفس الخطوات)
-        llm    = get_llm()
-        parser = PydanticOutputParser(pydantic_object=DynamicReport)
-        prompt = build_report_prompt(session, parser.get_format_instructions())
-        report = None
-        for attempt in range(3):
-            try:
-                result = llm.invoke([HumanMessage(content=prompt)])
-                report = parser.parse(result.content)
-                break
-            except Exception as e:
-                if attempt == 2:
-                    raise e
-                logger.warning(f"Parse attempt {attempt+1} failed: {e}")
-
-        # إنشاء مستند Word
-        doc = Document()
-
-        # ضبط اتجاه المستند حسب اللغة
-        lang_key = session.get("language", "ar")
-        if lang_key == "ar":
-            # للعربية نضبط الاتجاه من اليمين لليسار
-            section = doc.sections[0]
-            section.right_to_left = True
-
-        # إضافة العنوان
-        title = doc.add_heading(report.title, level=1)
-        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        # إضافة المقدمة
-        doc.add_heading(LANGUAGES[lang_key]['intro_label'], level=2)
-        doc.add_paragraph(report.introduction)
-
-        # إضافة الكتل
-        for block in report.blocks:
-            doc.add_heading(block.title, level=3)
-
-            if block.block_type == "paragraph":
-                doc.add_paragraph(block.text)
-
-            elif block.block_type in ("bullets", "numbered_list"):
-                for item in block.items or []:
-                    doc.add_paragraph(item, style='List Bullet' if block.block_type == "bullets" else 'List Number')
-
-            elif block.block_type == "table":
-                if block.headers and block.rows:
-                    table = doc.add_table(rows=1, cols=len(block.headers))
-                    table.style = 'Light Grid Accent 1'
-                    hdr_cells = table.rows[0].cells
-                    for i, h in enumerate(block.headers):
-                        hdr_cells[i].text = h
-                    for row_data in block.rows:
-                        row_cells = table.add_row().cells
-                        for i, cell_text in enumerate(row_data):
-                            if i < len(row_data):
-                                row_cells[i].text = cell_text
-
-            elif block.block_type == "pros_cons":
-                doc.add_paragraph("المزايا:", style='List Bullet')
-                for p in block.pros or []:
-                    doc.add_paragraph(p, style='List Bullet')
-                doc.add_paragraph("العيوب:", style='List Bullet')
-                for c in block.cons or []:
-                    doc.add_paragraph(c, style='List Bullet')
-
-            elif block.block_type == "comparison":
-                if block.criteria and block.side_a_values and block.side_b_values:
-                    table = doc.add_table(rows=1, cols=3)
-                    table.style = 'Light Grid Accent 1'
-                    hdr = table.rows[0].cells
-                    hdr[0].text = "المعيار"
-                    hdr[1].text = block.side_a or "A"
-                    hdr[2].text = block.side_b or "B"
-                    for i, crit in enumerate(block.criteria):
-                        row = table.add_row().cells
-                        row[0].text = crit
-                        row[1].text = block.side_a_values[i] if i < len(block.side_a_values) else "-"
-                        row[2].text = block.side_b_values[i] if i < len(block.side_b_values) else "-"
-
-            elif block.block_type == "stats":
-                for item in block.items or []:
-                    doc.add_paragraph(item, style='List Bullet')
-
-            elif block.block_type == "examples":
-                for item in block.items or []:
-                    doc.add_paragraph(item, style='List Bullet')
-
-            elif block.block_type == "quote":
-                doc.add_paragraph(block.text, style='Intense Quote')
-
-        # إضافة الخاتمة
-        doc.add_heading(LANGUAGES[lang_key]['conclusion_label'], level=2)
-        doc.add_paragraph(report.conclusion)
-
-        # حفظ المستند في BytesIO
-        docx_bytes = BytesIO()
-        doc.save(docx_bytes)
-        docx_bytes.seek(0)
-        return docx_bytes.getvalue(), report.title
-
-    except Exception as e:
-        logger.error(f"❌ generate_word_report: {e}", exc_info=True)
-        return None, str(e)
-
-
-# ═══════════════════════════════════════════════════
-# HTML RENDERER
-# ═══════════════════════════════════════════════════
+# ------------------- Render HTML -------------------
 def esc(v):
     return html_lib.escape(str(v)) if v is not None else ""
 
@@ -578,17 +531,17 @@ def text_to_paras(text: str, align: str) -> str:
     )
 
 def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
-    p      = tc["primary"]
-    a      = tc["accent"]
-    bg     = tc["bg"]
-    bg2    = tc["bg2"]
-    align  = lang["align"]
+    p = tc["primary"]
+    a = tc["accent"]
+    bg = tc["bg"]
+    bg2 = tc["bg2"]
+    align = lang["align"]
     is_rtl = lang["dir"] == "rtl"
     b_side = "border-right" if is_rtl else "border-left"
     p_side = "padding-right" if is_rtl else "padding-left"
-    is_dark   = (p == "#d4af37")
+    is_dark = (p == "#d4af37")
     txt_color = "#e2e8f0" if is_dark else "#333333"
-    h2_bg     = "#3d4a5c" if is_dark else bg
+    h2_bg = "#3d4a5c" if is_dark else bg
 
     h2 = (
         f'<h2 style="color:{p};font-size:15.5px;font-weight:bold;'
@@ -614,7 +567,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         rows = ""
         for idx, item in enumerate(b.items or []):
             parts = str(item).split(":", 1)
-            bg_r  = bg if idx % 2 == 0 else bg2
+            bg_r = bg if idx % 2 == 0 else bg2
             if len(parts) == 2:
                 rows += (
                     f'<tr><td style="font-weight:bold;color:{p};padding:9px 12px;background:{bg};'
@@ -645,8 +598,8 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         )
 
     elif bt == "pros_cons":
-        pros  = b.pros or []
-        cons  = b.cons or []
+        pros = b.pros or []
+        cons = b.cons or []
         style = (b.style or "A").upper().strip()
 
         def pro_li(x):
@@ -689,13 +642,13 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         elif style == "B":
             rows_html = ""
             for sign, item in [("+", x) for x in pros] + [("-", x) for x in cons]:
-                is_pro   = sign == "+"
-                row_bg   = "#f0fff4" if is_pro else "#fff5f5"
-                dot_bg   = "#1a5e38" if is_pro else "#7b1a1a"
+                is_pro = sign == "+"
+                row_bg = "#f0fff4" if is_pro else "#fff5f5"
+                dot_bg = "#1a5e38" if is_pro else "#7b1a1a"
                 dot_char = "✓" if is_pro else "✗"
                 sep = " — "
                 if sep in str(item):
-                    pts  = str(item).split(sep, 1)
+                    pts = str(item).split(sep, 1)
                     cell = f'<span style="font-weight:700;">{esc(pts[0].strip())}</span><span style="color:#555;font-size:13px;"> — {esc(pts[1].strip())}</span>'
                 else:
                     cell = f'<span style="font-weight:600;">{esc(item)}</span>'
@@ -729,7 +682,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                     sep = " — "
                     if sep in str(x):
                         pts = str(x).split(sep, 1)
-                        t   = f'<b>{esc(pts[0].strip())}</b> — <span style="color:#555;">{esc(pts[1].strip())}</span>'
+                        t = f'<b>{esc(pts[0].strip())}</b> — <span style="color:#555;">{esc(pts[1].strip())}</span>'
                     else:
                         t = f'<b>{esc(x)}</b>'
                     items_html += (
@@ -749,7 +702,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         rows = ""
         for ridx, row in enumerate(b.rows or []):
             bg_r = bg if ridx % 2 == 0 else bg2
-            tds  = "".join(
+            tds = "".join(
                 f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};color:{txt_color};">{esc(c)}</td>'
                 for c in row
             )
@@ -798,20 +751,21 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         return f'<div style="margin:18px 0;">{h2}{text_to_paras(b.text or "", align)}</div>'
 
 
-# ═══════════════════════════════════════════════════
-# RENDER HTML
-# ═══════════════════════════════════════════════════
 def render_html(report: DynamicReport, session: dict) -> str:
-    language_key  = session.get("language", "ar")
-    lang          = LANGUAGES[language_key]
-    is_custom     = session.get("custom_mode", False)
+    language_key = session.get("language", "ar")
+    lang = LANGUAGES[language_key]
+    is_custom = session.get("custom_mode", False)
     template_name = "_custom" if is_custom else session.get("template", "emerald")
 
     if is_custom:
-        colors    = CUSTOM_COLORS[session.get("custom_color_key", "royal_blue")]
+        colors = CUSTOM_COLORS[session.get("custom_color_key", "royal_blue")]
         p, a, bg, bg2 = colors["primary"], colors["accent"], colors["bg"], colors["bg2"]
         font_size = CUSTOM_FONT_SIZES[session.get("custom_font_size_key", "medium")]["size"]
-        font      = CUSTOM_FONTS[session.get("custom_font_key", "traditional")]["value"]
+        font_key = session.get("custom_font_key", "traditional")
+        if language_key == "ar":
+            font = ARABIC_FONTS.get(font_key, ARABIC_FONTS["traditional"])["value"]
+        else:
+            font = ENGLISH_FONTS.get(font_key, ENGLISH_FONTS["arial"])["value"]
         line_height = LINE_HEIGHTS[session.get("custom_line_height", "normal")]["value"]
         page_margin = PAGE_MARGINS[session.get("custom_page_margin", "medium")]["value"]
         header_style_key = session.get("custom_header_style", "colored")
@@ -821,23 +775,23 @@ def render_html(report: DynamicReport, session: dict) -> str:
         header_size = HEADER_STYLES[header_style_key]["size"]
         show_hf = SHOW_HEADER_FOOTER[session.get("custom_show_header_footer", "yes")]["show"]
     else:
-        tc        = TEMPLATES[template_name]
+        tc = TEMPLATES[template_name]
         p, a, bg, bg2 = tc["primary"], tc["accent"], tc["bg"], tc["bg2"]
         font_size = "16.5px"
-        font      = lang["font"]
-        line_height = "1.8"  # normal
-        page_margin = "2.5cm" # medium
+        font = lang["font"]
+        line_height = "1.8"
+        page_margin = "2.5cm"
         header_color = p
         header_size = "24px"
         show_hf = True
 
-    tc     = {"primary": p, "accent": a, "bg": bg, "bg2": bg2}
-    dir_   = lang["dir"]
-    align  = lang["align"]
+    tc_dict = {"primary": p, "accent": a, "bg": bg, "bg2": bg2}
+    dir_ = lang["dir"]
+    align = lang["align"]
     is_rtl = dir_ == "rtl"
     b_side = "border-right" if is_rtl else "border-left"
 
-    # ── ألوان الصفحة ──
+    # ألوان الصفحة حسب القالب
     if template_name == "dark_elegant":
         page_bg, body_color, box_bg = "#1a202c", "#e2e8f0", "#2d3748"
     elif template_name == "royal":
@@ -845,12 +799,12 @@ def render_html(report: DynamicReport, session: dict) -> str:
     else:
         page_bg, body_color, box_bg = "#ffffff", "#2d3436", bg
 
-    # ── إطار الصفحة ──
+    # إطارات الصفحة
     borders = {
         "emerald":      (f"3px solid {p}", "0.35cm", "0.7cm", f"outline:1.5px solid {a};outline-offset:-7px;"),
         "modern":       (f"4px solid {a}", "0.35cm", "0.7cm", ""),
-        "minimal":      (f"1.5px solid {p}","0.4cm",  "0.7cm", ""),
-        "professional": (f"2px solid {p}", "0.35cm", "0.65cm",f"outline:4px solid {p};outline-offset:-10px;"),
+        "minimal":      (f"1.5px solid {p}", "0.4cm",  "0.7cm", ""),
+        "professional": (f"2px solid {p}", "0.35cm", "0.65cm", f"outline:4px solid {p};outline-offset:-10px;"),
         "dark_elegant": (f"2px solid {a}", "0.35cm", "0.7cm", ""),
         "royal":        (f"3px solid {p}", "0.35cm", "0.7cm", f"outline:2px solid {a};outline-offset:-8px;"),
         "_custom":      (f"3px solid {p}", "0.35cm", "0.7cm", f"outline:1.5px solid {a};outline-offset:-8px;"),
@@ -858,10 +812,9 @@ def render_html(report: DynamicReport, session: dict) -> str:
     page_border, page_margin_extra, page_padding, extra_css = borders.get(
         template_name, ("none", "2cm", "0cm", "")
     )
-    # استخدم page_margin المخصص إذا كان موجوداً
     final_margin = page_margin if is_custom else page_margin_extra
 
-    # ── ترويسة وتذييل ──
+    # ترويسة وتذييل
     gdir = "left" if is_rtl else "right"
     if template_name == "professional":
         prof_top = (
@@ -914,7 +867,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
         prof_top = ""
         prof_bot = ""
 
-    blocks_html = "\n".join(render_block(bl, tc, lang) for bl in report.blocks)
+    blocks_html = "\n".join(render_block(bl, tc_dict, lang) for bl in report.blocks)
 
     return f"""<!DOCTYPE html>
 <html lang="{lang['lang_attr']}" dir="{dir_}">
@@ -982,9 +935,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
 </html>"""
 
 
-# ═══════════════════════════════════════════════════
-# KEYBOARDS
-# ═══════════════════════════════════════════════════
+# ------------------- لوحات المفاتيح -------------------
 def title_keyboard():
     return InlineKeyboardMarkup([[InlineKeyboardButton("👻 اتركه للشبح", callback_data="title_auto")]])
 
@@ -1018,9 +969,10 @@ def font_size_keyboard():
         for k, v in CUSTOM_FONT_SIZES.items()
     ])
 
-def font_keyboard():
-    items = list(CUSTOM_FONTS.items())
-    rows  = []
+def font_keyboard_for_language(lang_key):
+    fonts = get_fonts_by_language(lang_key)
+    items = list(fonts.items())
+    rows = []
     for i in range(0, len(items), 2):
         row = [InlineKeyboardButton(items[i][1]["label"], callback_data=f"cfont_{items[i][0]}")]
         if i + 1 < len(items):
@@ -1030,7 +982,7 @@ def font_keyboard():
 
 def colors_keyboard():
     items = list(CUSTOM_COLORS.items())
-    rows  = []
+    rows = []
     for i in range(0, len(items), 2):
         row = [InlineKeyboardButton(items[i][1]["label"], callback_data=f"color_{items[i][0]}")]
         if i + 1 < len(items):
@@ -1062,12 +1014,6 @@ def show_header_keyboard():
         for k, v in SHOW_HEADER_FOOTER.items()
     ])
 
-def file_format_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{FILE_FORMATS['pdf']['emoji']} PDF", callback_data="format_pdf"),
-         InlineKeyboardButton(f"{FILE_FORMATS['word']['emoji']} Word", callback_data="format_word")]
-    ])
-
 def comparison_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 نعم، أضف جدول مقارنة!", callback_data="comp_yes")],
@@ -1075,22 +1021,17 @@ def comparison_keyboard():
     ])
 
 
-# ═══════════════════════════════════════════════════
-# HELPER
-# ═══════════════════════════════════════════════════
+# ------------------- دالة مساعدة لنص الطابور -------------------
 def build_queue_text(session: dict, pos: int) -> str:
-    lang_name  = LANGUAGES[session.get("language", "ar")]["name"]
+    lang_name = LANGUAGES[session.get("language", "ar")]["name"]
     depth_name = DEPTH_OPTIONS[session.get("depth", "medium")]["name"]
-    tpl_name   = "🎨 مخصص" if session.get("custom_mode") else TEMPLATES.get(session.get("template", "emerald"), {}).get("name", "")
-    safe_topic = session["topic"].replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
-    file_format = FILE_FORMATS[session.get("file_format", "pdf")]["emoji"]
-    status     = "👻 <b>الشبح بدأ يكتب تقريرك!</b>" if pos == 1 else f"⏳ <b>في الطابور — الترتيب {pos}</b> 👻"
-    return f"{status}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}  |  {file_format}"
+    tpl_name = "🎨 مخصص" if session.get("custom_mode") else TEMPLATES.get(session.get("template", "emerald"), {}).get("name", "")
+    safe_topic = session["topic"].replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
+    status = "👻 <b>الشبح بدأ يكتب تقريرك!</b>" if pos == 1 else f"⏳ <b>في الطابور — الترتيب {pos}</b> 👻"
+    return f"{status}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}"
 
 
-# ═══════════════════════════════════════════════════
-# TELEGRAM HANDLERS
-# ═══════════════════════════════════════════════════
+# ------------------- معالجات التيليجرام -------------------
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id in user_sessions:
@@ -1115,8 +1056,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"4️⃣ اختر العمق والتصميم:\n"
         f"   • 🎭 <b>قوالب جاهزة</b> — 6 قوالب احترافية\n"
         f"   • 🎨 <b>تخصيص كامل</b> — خط، ألوان، مقارنة خاصة ✨\n"
-        f"5️⃣ اختر صيغة الملف: PDF أو Word\n"
-        f"6️⃣ استلم تقريرك! 🎉\n\n"
+        f"5️⃣ استلم تقريرك PDF! 🎉\n\n"
         f"👻 <b>أرسل موضوع تقريرك الآن!</b>",
         parse_mode='HTML'
     )
@@ -1124,18 +1064,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text    = update.message.text.strip()
+    text = update.message.text.strip()
 
     if user_id in user_sessions:
         session = user_sessions[user_id]
-        state   = session.get("state", "")
+        state = session.get("state", "")
 
         if state == "answering":
-            answers   = session.setdefault("answers", [])
+            answers = session.setdefault("answers", [])
             questions = session.get("dynamic_questions", [])
             answers.append(text)
             if len(answers) < len(questions):
-                nq    = questions[len(answers)]
+                nq = questions[len(answers)]
                 q_num = len(answers) + 1
                 total = len(questions)
                 await update.message.reply_text(
@@ -1154,7 +1094,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if state == "choosing_title":
             session["custom_title"] = text
-            session["state"]        = "choosing_depth"
+            session["state"] = "choosing_depth"
             await update.message.reply_text(
                 f"✅ <b>العنوان:</b> <i>{esc(text)}</i>\n\n📏 <b>اختر عمق التقرير:</b>",
                 reply_markup=depth_keyboard(), parse_mode='HTML'
@@ -1163,11 +1103,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if state == "entering_comparison":
             session["comparison_query"] = text
-            session["state"]            = "choosing_file_format"
-            await update.message.reply_text(
-                "📁 <b>الآن اختر صيغة الملف الذي تريده:</b>",
-                reply_markup=file_format_keyboard(), parse_mode='HTML'
-            )
+            session["state"] = "in_queue"
+            pos = report_queue.qsize() + 1
+            queue_positions[user_id] = pos
+            status = await update.message.reply_text(build_queue_text(session, pos), parse_mode='HTML')
+            await report_queue.put((user_id, session.copy(), status.message_id))
             return
 
         guidance = STATE_GUIDANCE.get(state, "⏳ جاري المعالجة... أرسل /cancel للبدء من جديد.")
@@ -1182,7 +1122,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_sessions[user_id] = {"topic": text, "state": "choosing_lang"}
-    safe = text.replace('<','&lt;').replace('>','&gt;').replace('&','&amp;')
+    safe = text.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
     await update.message.reply_text(
         f"📝 <b>الموضوع:</b> <i>{safe}</i>\n\n🌐 <b>اختر لغة التقرير:</b>",
         reply_markup=lang_keyboard(), parse_mode='HTML'
@@ -1190,14 +1130,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def title_auto_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     session = user_sessions[user_id]
     if session.get("state") != "choosing_title":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session.pop("custom_title", None)
     session["state"] = "choosing_depth"
     await query.edit_message_text(
@@ -1207,29 +1149,30 @@ async def title_auto_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    lang    = query.data.replace("lang_", "")
+    lang = query.data.replace("lang_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
-    session             = user_sessions[user_id]
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
+    session = user_sessions[user_id]
     session["language"] = lang
-    session["state"]    = "generating_questions"
+    session["state"] = "generating_questions"
     await query.edit_message_text(
         f"✅ <b>اللغة:</b> {LANGUAGES[lang]['name']}\n\n👻 <i>الشبح يحلل موضوعك ويولّد الأسئلة...</i>",
         parse_mode='HTML'
     )
     try:
-        loop      = asyncio.get_event_loop()
+        loop = asyncio.get_event_loop()
         questions = await loop.run_in_executor(None, generate_dynamic_questions, session["topic"], lang)
         if not questions:
             raise ValueError("no questions")
         session["dynamic_questions"] = questions
-        session["state"]             = "answering"
-        total  = len(questions)
+        session["state"] = "answering"
+        total = len(questions)
         q_word = "سؤال" if total == 1 else "أسئلة"
-        hint   = "\n\n💡 <i>يمكنك طلب جداول، مزايا/عيوب، أو مقارنات في إجاباتك.</i>"
+        hint = "\n\n💡 <i>يمكنك طلب جداول، مزايا/عيوب، أو مقارنات في إجاباتك.</i>"
         await query.edit_message_text(
             f"🧠 <b>لديّ {total} {q_word} قبل الكتابة!</b>{hint}\n\n"
             f"❓ <b>السؤال 1/{total}:</b>\n{questions[0]}\n\n<i>اكتب إجابتك 👇</i>",
@@ -1238,8 +1181,8 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Questions failed: {e}", exc_info=True)
         session["dynamic_questions"] = []
-        session["answers"]           = []
-        session["state"]             = "choosing_depth"
+        session["answers"] = []
+        session["state"] = "choosing_depth"
         await query.edit_message_text(
             "⚠️ تعذّر توليد الأسئلة. سنكمل مباشرةً.\n\n📏 <b>اختر عمق التقرير:</b>",
             reply_markup=depth_keyboard(), parse_mode='HTML'
@@ -1247,14 +1190,16 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def depth_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    depth   = query.data.replace("depth_", "")
+    depth = query.data.replace("depth_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "choosing_depth":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     user_sessions[user_id]["depth"] = depth
     user_sessions[user_id]["state"] = "choosing_style_mode"
     await query.edit_message_text(
@@ -1267,27 +1212,28 @@ async def depth_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def style_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    mode    = query.data.replace("style_", "")
+    mode = query.data.replace("style_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "choosing_style_mode":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session = user_sessions[user_id]
     if mode == "preset":
         session["custom_mode"] = False
-        session["state"]       = "choosing_template"
+        session["state"] = "choosing_template"
         await query.edit_message_text(
             "🎭 <b>اختر قالباً من مجموعة Repooreto:</b>",
             reply_markup=template_keyboard(), parse_mode='HTML'
         )
     else:
         session["custom_mode"] = True
-        # تهيئة القيم الافتراضية للتخصيص
         session["custom_font_size_key"] = "medium"
-        session["custom_font_key"] = "traditional"
+        session["custom_font_key"] = "traditional" if session.get("language", "ar") == "ar" else "arial"
         session["custom_color_key"] = "royal_blue"
         session["custom_line_height"] = "normal"
         session["custom_page_margin"] = "medium"
@@ -1303,37 +1249,42 @@ async def style_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def font_size_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    key     = query.data.replace("fsize_", "")
+    key = query.data.replace("fsize_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "choosing_font_size":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session = user_sessions[user_id]
     session["custom_font_size_key"] = key
-    session["state"]                = "choosing_font"
+    session["state"] = "choosing_font"
+    lang_key = session.get("language", "ar")
     await query.edit_message_text(
         f"✅ <b>الحجم:</b> {CUSTOM_FONT_SIZES[key]['label']}\n\n"
         "✍️ <b>الخطوة 2 من 6 — نوع الخط:</b>\n"
-        "الخطوط العلوية للعربية — السفلية للإنجليزية 👇",
-        reply_markup=font_keyboard(), parse_mode='HTML'
+        "اختر الخط المناسب 👇",
+        reply_markup=font_keyboard_for_language(lang_key), parse_mode='HTML'
     )
 
 
 async def font_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    key     = query.data.replace("cfont_", "")
+    key = query.data.replace("cfont_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "choosing_font":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session = user_sessions[user_id]
     session["custom_font_key"] = key
-    session["state"]           = "choosing_colors"
+    session["state"] = "choosing_colors"
     await query.edit_message_text(
         f"✅ <b>الخط:</b> {CUSTOM_FONTS[key]['label']}\n\n"
         "🎨 <b>الخطوة 3 من 6 — نظام الألوان:</b>\n"
@@ -1343,17 +1294,19 @@ async def font_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def colors_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    key     = query.data.replace("color_", "")
+    key = query.data.replace("color_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "choosing_colors":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session = user_sessions[user_id]
     session["custom_color_key"] = key
-    session["state"]            = "choosing_line_height"
+    session["state"] = "choosing_line_height"
     await query.edit_message_text(
         f"✅ <b>الألوان:</b> {CUSTOM_COLORS[key]['label']}\n\n"
         "📏 <b>الخطوة 4 من 6 — تباعد الأسطر:</b>\n"
@@ -1363,17 +1316,19 @@ async def colors_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def line_height_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    key     = query.data.replace("lh_", "")
+    key = query.data.replace("lh_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "choosing_line_height":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session = user_sessions[user_id]
     session["custom_line_height"] = key
-    session["state"]            = "choosing_page_margin"
+    session["state"] = "choosing_page_margin"
     await query.edit_message_text(
         f"✅ <b>تباعد الأسطر:</b> {LINE_HEIGHTS[key]['label']}\n\n"
         "📐 <b>الخطوة 5 من 6 — هوامش الصفحة:</b>\n"
@@ -1383,17 +1338,19 @@ async def line_height_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def page_margin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    key     = query.data.replace("pm_", "")
+    key = query.data.replace("pm_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "choosing_page_margin":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session = user_sessions[user_id]
     session["custom_page_margin"] = key
-    session["state"]            = "choosing_header_style"
+    session["state"] = "choosing_header_style"
     await query.edit_message_text(
         f"✅ <b>الهوامش:</b> {PAGE_MARGINS[key]['label']}\n\n"
         "🎯 <b>الخطوة 6 من 6 — نمط العنوان الرئيسي:</b>\n"
@@ -1403,17 +1360,19 @@ async def page_margin_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def header_style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    key     = query.data.replace("hs_", "")
+    key = query.data.replace("hs_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "choosing_header_style":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session = user_sessions[user_id]
     session["custom_header_style"] = key
-    session["state"]            = "choosing_show_header"
+    session["state"] = "choosing_show_header"
     await query.edit_message_text(
         f"✅ <b>نمط العنوان:</b> {HEADER_STYLES[key]['label']}\n\n"
         "📰 <b>هل تريد إظهار الترويسة والتذييل؟</b>",
@@ -1422,17 +1381,19 @@ async def header_style_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def show_header_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    key     = query.data.replace("sh_", "")
+    key = query.data.replace("sh_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "choosing_show_header":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session = user_sessions[user_id]
     session["custom_show_header_footer"] = key
-    session["state"]            = "asking_comparison"
+    session["state"] = "asking_comparison"
     await query.edit_message_text(
         f"✅ <b>الترويسة:</b> {SHOW_HEADER_FOOTER[key]['label']}\n\n"
         "📊 <b>هل تريد إضافة جدول مقارنة خاص في التقرير؟</b>\n"
@@ -1442,13 +1403,15 @@ async def show_header_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def comp_yes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "asking_comparison":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     user_sessions[user_id]["state"] = "entering_comparison"
     await query.edit_message_text(
         "📊 <b>اكتب الشيئين اللذين تريد مقارنتهما:</b>\n\n"
@@ -1462,52 +1425,38 @@ async def comp_yes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def comp_no_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "asking_comparison":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session = user_sessions[user_id]
     session.pop("comparison_query", None)
-    session["state"] = "choosing_file_format"
-    await query.edit_message_text(
-        "📁 <b>الآن اختر صيغة الملف الذي تريده:</b>",
-        reply_markup=file_format_keyboard(), parse_mode='HTML'
-    )
+    session["state"] = "in_queue"
+    pos = report_queue.qsize() + 1
+    queue_positions[user_id] = pos
+    await query.edit_message_text(build_queue_text(session, pos), parse_mode='HTML')
+    await report_queue.put((user_id, session.copy(), query.message.message_id))
 
 
 async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    tpl     = query.data.replace("tpl_", "")
+    tpl = query.data.replace("tpl_", "")
     if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
     if user_sessions[user_id].get("state") != "choosing_template":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True); return
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
     session = user_sessions[user_id]
-    session["template"]    = tpl
+    session["template"] = tpl
     session["custom_mode"] = False
-    session["state"]       = "choosing_file_format"
-    await query.edit_message_text(
-        "📁 <b>الآن اختر صيغة الملف الذي تريده:</b>",
-        reply_markup=file_format_keyboard(), parse_mode='HTML'
-    )
-
-
-async def file_format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    fmt     = query.data.replace("format_", "")
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية."); return
-    session = user_sessions[user_id]
-    if session.get("state") not in ["choosing_file_format", "in_queue"]:
-        await query.answer("هذا الزر غير متاح الآن.", show_alert=True); return
-    session["file_format"] = fmt
     session["state"] = "in_queue"
     pos = report_queue.qsize() + 1
     queue_positions[user_id] = pos
@@ -1524,9 +1473,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
-# ═══════════════════════════════════════════════════
-# MAIN
-# ═══════════════════════════════════════════════════
+# ------------------- بدء التشغيل -------------------
 async def post_init(app):
     global report_queue
     report_queue = asyncio.Queue()
@@ -1551,30 +1498,29 @@ if __name__ == '__main__':
             .post_init(post_init)
             .build()
         )
-        app.add_handler(CommandHandler('start',  start))
+        app.add_handler(CommandHandler('start', start))
         app.add_handler(CommandHandler('cancel', cancel))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
         app.add_handler(CallbackQueryHandler(title_auto_callback, pattern=r'^title_auto$'))
-        app.add_handler(CallbackQueryHandler(language_callback,   pattern=r'^lang_'))
-        app.add_handler(CallbackQueryHandler(depth_callback,      pattern=r'^depth_'))
+        app.add_handler(CallbackQueryHandler(language_callback, pattern=r'^lang_'))
+        app.add_handler(CallbackQueryHandler(depth_callback, pattern=r'^depth_'))
         app.add_handler(CallbackQueryHandler(style_mode_callback, pattern=r'^style_'))
-        app.add_handler(CallbackQueryHandler(template_callback,   pattern=r'^tpl_'))
-        app.add_handler(CallbackQueryHandler(font_size_callback,  pattern=r'^fsize_'))
-        app.add_handler(CallbackQueryHandler(font_callback,       pattern=r'^cfont_'))
-        app.add_handler(CallbackQueryHandler(colors_callback,     pattern=r'^color_'))
+        app.add_handler(CallbackQueryHandler(template_callback, pattern=r'^tpl_'))
+        app.add_handler(CallbackQueryHandler(font_size_callback, pattern=r'^fsize_'))
+        app.add_handler(CallbackQueryHandler(font_callback, pattern=r'^cfont_'))
+        app.add_handler(CallbackQueryHandler(colors_callback, pattern=r'^color_'))
         app.add_handler(CallbackQueryHandler(line_height_callback, pattern=r'^lh_'))
         app.add_handler(CallbackQueryHandler(page_margin_callback, pattern=r'^pm_'))
         app.add_handler(CallbackQueryHandler(header_style_callback, pattern=r'^hs_'))
         app.add_handler(CallbackQueryHandler(show_header_callback, pattern=r'^sh_'))
-        app.add_handler(CallbackQueryHandler(comp_yes_callback,   pattern=r'^comp_yes$'))
-        app.add_handler(CallbackQueryHandler(comp_no_callback,    pattern=r'^comp_no$'))
-        app.add_handler(CallbackQueryHandler(file_format_callback, pattern=r'^format_(pdf|word)$'))
+        app.add_handler(CallbackQueryHandler(comp_yes_callback, pattern=r'^comp_yes$'))
+        app.add_handler(CallbackQueryHandler(comp_no_callback, pattern=r'^comp_no$'))
         app.add_error_handler(error_handler)
 
-        logger.info("👻 Repooreto Bot v5.2 Ready!")
+        logger.info("👻 Repooreto Bot v5.4 Ready!")
         print("=" * 60)
-        print("👻 Repooreto — Smart University Reports Bot v5.2")
+        print("👻 Repooreto — Smart University Reports Bot v5.4")
         print("=" * 60)
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
