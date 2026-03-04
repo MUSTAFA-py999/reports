@@ -389,15 +389,20 @@ def calculate_words_per_page(session: dict) -> int:
 
 
 # ------------------- دوال LLM -------------------
-def get_llm():
+def get_llm(max_tokens: int = 8192):
+    """
+    نموذج Gemini 2.0 Flash — سريع وبدون thinking overhead.
+    max_tokens: يُرفع للتقارير الطويلة.
+    """
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise Exception("GOOGLE_API_KEY not set")
     return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-2.0-flash",
         temperature=0.7,
         google_api_key=api_key,
-        max_retries=3
+        max_retries=2,
+        max_output_tokens=max_tokens,
     )
 
 
@@ -419,7 +424,7 @@ def extract_text_content(result) -> str:
 
 def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
     lang = LANGUAGES[language_key]
-    llm = get_llm()
+    llm = get_llm(max_tokens=1024)
     parser = PydanticOutputParser(pydantic_object=SmartQuestions)
     prompt = lang["q_prompt"].format(topic=topic) + "\n\n" + parser.get_format_instructions()
     result = llm.invoke([HumanMessage(content=prompt)])
@@ -575,31 +580,64 @@ def count_report_words(report) -> int:
     return total
 
 
+def _calc_max_tokens(expected_words: int) -> int:
+    """يحسب حد tokens الكافي: ~2 token/word + 30% buffer + overhead JSON"""
+    return min(32000, max(8192, int(expected_words * 2.6) + 2000))
+
+
+def _try_parse_partial(text: str, parser) -> object:
+    """
+    إذا فشل parse العادي، يحاول إصلاح JSON المقطوع
+    بإغلاق القوسين المفتوحين وإعادة المحاولة.
+    """
+    try:
+        return parser.parse(text)
+    except Exception:
+        pass
+    # محاولة إصلاح JSON المقطوع
+    fixed = text.rstrip()
+    # أغلق أي strings مفتوحة
+    if fixed.count('"') % 2 != 0:
+        fixed += '"'
+    # أغلق arrays وobjects مفتوحة
+    opens = fixed.count('[') - fixed.count(']')
+    close_o = fixed.count('{') - fixed.count('}')
+    fixed += ']'  * max(0, opens)
+    fixed += '}'  * max(0, close_o)
+    try:
+        return parser.parse(fixed)
+    except Exception as e2:
+        raise e2
+
+
 def generate_report(session: dict):
     try:
-        llm = get_llm()
-        parser = PydanticOutputParser(pydantic_object=DynamicReport)
-
         depth_key = session.get("depth", "medium")
         target_pages = DEPTH_OPTIONS[depth_key]["pages"]
         words_per_page = calculate_words_per_page(session)
         expected_words = target_pages * words_per_page
-        tolerance = int(expected_words * 0.07)
+        tolerance = int(expected_words * 0.12)
+        max_tokens = _calc_max_tokens(expected_words)
+
+        llm = get_llm(max_tokens=max_tokens)
+        parser = PydanticOutputParser(pydantic_object=DynamicReport)
+
+        logger.info(f"Report: target={expected_words}w, pages={target_pages}, wpp={words_per_page}, max_tokens={max_tokens}")
 
         best_report = None
         best_diff = float('inf')
         feedback = ""
 
-        for attempt in range(3):
+        for attempt in range(2):          # محاولتان فقط للسرعة
             try:
                 prompt = build_report_prompt(session, parser.get_format_instructions(), feedback)
                 result = llm.invoke([HumanMessage(content=prompt)])
-                report = parser.parse(extract_text_content(result))
+                raw = extract_text_content(result)
+                report = _try_parse_partial(raw, parser)
 
                 total_words = count_report_words(report)
                 diff = abs(total_words - expected_words)
-
-                logger.info(f"Attempt {attempt+1}: {total_words} words (target {expected_words}, diff {diff})")
+                logger.info(f"Attempt {attempt+1}: {total_words}w / target {expected_words}w (diff {diff})")
 
                 if diff < best_diff:
                     best_diff = diff
@@ -608,27 +646,24 @@ def generate_report(session: dict):
                 if diff <= tolerance:
                     break
 
-                # إعداد تغذية راجعة للمحاولة التالية
                 if total_words < expected_words - tolerance:
                     shortage = expected_words - total_words
                     feedback = (
-                        f"Previous attempt produced only {total_words} words but target is {expected_words}. "
-                        f"You are SHORT by {shortage} words. "
-                        f"EXPAND each paragraph block significantly. Add more paragraph blocks if needed. "
-                        f"Each paragraph must be at least {int(words_per_page * 0.35)} words."
+                        f"CRITICAL: previous attempt wrote only {total_words} words. "
+                        f"Target is {expected_words}. You are SHORT by {shortage} words. "
+                        f"Write LONGER paragraphs ({int(words_per_page*0.4)}+ words each). "
+                        f"Add extra paragraph blocks until you reach {expected_words} words."
                     )
                 else:
-                    excess = total_words - expected_words
                     feedback = (
-                        f"Previous attempt produced {total_words} words but target is {expected_words}. "
-                        f"You exceeded by {excess} words. "
-                        f"Shorten paragraph blocks slightly to hit the target."
+                        f"Previous attempt wrote {total_words} words, target is {expected_words}. "
+                        f"Trim paragraphs slightly."
                     )
 
             except Exception as e:
-                logger.warning(f"Parse attempt {attempt+1} failed: {e}")
-                feedback = f"Previous attempt failed to parse JSON. Ensure output is valid JSON only."
-                if attempt == 2:
+                logger.warning(f"Attempt {attempt+1} failed: {e}")
+                feedback = "Output must be ONLY valid JSON matching the schema. No truncation."
+                if attempt == 1:
                     raise e
 
         if best_report is None:
