@@ -398,7 +398,7 @@ def get_llm(max_tokens: int = 8192):
     if not api_key:
         raise Exception("GOOGLE_API_KEY not set")
     return ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         temperature=0.7,
         google_api_key=api_key,
         max_retries=2,
@@ -1590,3 +1590,4 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
+
