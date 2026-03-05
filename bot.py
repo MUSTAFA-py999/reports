@@ -1,4 +1,6 @@
 import os
+import re
+import json
 import asyncio
 import threading
 import logging
@@ -9,9 +11,7 @@ from telegram.ext import (
     ApplicationBuilder, ContextTypes, CommandHandler,
     MessageHandler, CallbackQueryHandler, filters
 )
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.messages import HumanMessage
+import google.generativeai as genai
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from io import BytesIO
@@ -389,49 +389,51 @@ def calculate_words_per_page(session: dict) -> int:
 
 
 # ------------------- دوال LLM -------------------
-def get_llm(max_tokens: int = 8192):
+def _get_model(max_tokens: int = 8192, json_mode: bool = False):
     """
-    نموذج Gemini 2.0 Flash — سريع وبدون thinking overhead.
-    max_tokens: يُرفع للتقارير الطويلة.
+    يُنشئ نموذج Gemini 2.5 Flash مباشرةً عبر google-generativeai.
+    json_mode=True: يُلزم النموذج بإخراج JSON فقط (بدون markdown).
     """
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise Exception("GOOGLE_API_KEY not set")
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+    genai.configure(api_key=api_key)
+    config_kwargs = dict(
         temperature=0.7,
-        google_api_key=api_key,
-        max_retries=2,
         max_output_tokens=max_tokens,
+    )
+    if json_mode:
+        config_kwargs["response_mime_type"] = "application/json"
+    return genai.GenerativeModel(
+        model_name="gemini-2.5-flash",
+        generation_config=genai.GenerationConfig(**config_kwargs),
     )
 
 
-def extract_text_content(result) -> str:
-    """استخراج النص من نتيجة LLM سواء كانت string أو list، وتنظيف markdown"""
-    content = result.content
-    if isinstance(content, list):
-        content = " ".join(
-            item.get("text", "") if isinstance(item, dict) else str(item)
-            for item in content
-        )
-    content = str(content).strip()
-    # إزالة markdown code fences مثل ```json ... ```
-    import re
-    content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.MULTILINE)
-    content = re.sub(r"```\s*$", "", content, flags=re.MULTILINE)
-    return content.strip()
+def _call_model(model, prompt: str) -> str:
+    """يستدعي النموذج ويُرجع النص خالياً من markdown fences."""
+    response = model.generate_content(prompt)
+    text = response.text or ""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"```\s*$", "", text, flags=re.MULTILINE)
+    return text.strip()
 
 
 def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
     lang = LANGUAGES[language_key]
-    llm = get_llm(max_tokens=1024)
-    parser = PydanticOutputParser(pydantic_object=SmartQuestions)
-    prompt = lang["q_prompt"].format(topic=topic) + "\n\n" + parser.get_format_instructions()
-    result = llm.invoke([HumanMessage(content=prompt)])
-    return parser.parse(extract_text_content(result)).questions[:5]
+    model = _get_model(max_tokens=1024, json_mode=True)
+    prompt = (
+        lang["q_prompt"].format(topic=topic) +
+        '\n\nRespond ONLY with valid JSON matching this exact schema (no markdown):\n'
+        '{"questions": ["question1", "question2", ...]}'
+    )
+    text = _call_model(model, prompt)
+    data = json.loads(text)
+    return data.get("questions", [])[:5]
 
 
-def build_report_prompt(session: dict, format_instructions: str, feedback: str = "") -> str:
+def build_report_prompt(session: dict, feedback: str = "") -> str:
     topic = session["topic"]
     lang_key = session.get("language", "ar")
     depth_key = session.get("depth", "medium")
@@ -543,7 +545,30 @@ SPECIFIC NOTES:
 • Conclusion: 1-2 sentences ONLY. One final thought. Must fit on same page as last block.
 • ALL text in the specified language. Conclusion is MANDATORY.
 
-{format_instructions}"""
+RESPOND WITH ONLY THIS JSON STRUCTURE — no markdown, no explanation, no extra text:
+{{
+  "title": "string",
+  "introduction": "string (2-3 sentences)",
+  "blocks": [
+    {{
+      "block_type": "paragraph|bullets|numbered_list|table|pros_cons|comparison|stats|examples|quote",
+      "title": "string",
+      "style": "A|B|C|D or null",
+      "text": "string or null",
+      "items": ["string"] or null,
+      "pros": ["string"] or null,
+      "cons": ["string"] or null,
+      "headers": ["string"] or null,
+      "rows": [["string"]] or null,
+      "side_a": "string or null",
+      "side_b": "string or null",
+      "criteria": ["string"] or null,
+      "side_a_values": ["string"] or null,
+      "side_b_values": ["string"] or null
+    }}
+  ],
+  "conclusion": "string (1-2 sentences)"
+}}"""
 
 
 def count_words(text: str) -> int:
@@ -610,6 +635,30 @@ def _try_parse_partial(text: str, parser) -> object:
         raise e2
 
 
+def _parse_report_json(text: str) -> "DynamicReport":
+    """يحوّل نص JSON إلى DynamicReport مع محاولة إصلاح JSON المقطوع."""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"```\s*$", "", text, flags=re.MULTILINE)
+    text = text.strip()
+
+    # محاولة 1: parse مباشر
+    try:
+        data = json.loads(text)
+        return DynamicReport(**data)
+    except Exception:
+        pass
+
+    # محاولة 2: إصلاح JSON المقطوع
+    fixed = text
+    if fixed.count('"') % 2 != 0:
+        fixed += '"'
+    fixed += ']' * max(0, fixed.count('[') - fixed.count(']'))
+    fixed += '}' * max(0, fixed.count('{') - fixed.count('}'))
+    data = json.loads(fixed)
+    return DynamicReport(**data)
+
+
 def generate_report(session: dict):
     try:
         depth_key = session.get("depth", "medium")
@@ -619,21 +668,22 @@ def generate_report(session: dict):
         tolerance = int(expected_words * 0.12)
         max_tokens = _calc_max_tokens(expected_words)
 
-        llm = get_llm(max_tokens=max_tokens)
-        parser = PydanticOutputParser(pydantic_object=DynamicReport)
-
-        logger.info(f"Report: target={expected_words}w, pages={target_pages}, wpp={words_per_page}, max_tokens={max_tokens}")
+        model = _get_model(max_tokens=max_tokens, json_mode=True)
+        logger.info(f"Report: target={expected_words}w pages={target_pages} wpp={words_per_page} max_tokens={max_tokens}")
 
         best_report = None
         best_diff = float('inf')
         feedback = ""
 
-        for attempt in range(2):          # محاولتان فقط للسرعة
+        for attempt in range(2):
             try:
-                prompt = build_report_prompt(session, parser.get_format_instructions(), feedback)
-                result = llm.invoke([HumanMessage(content=prompt)])
-                raw = extract_text_content(result)
-                report = _try_parse_partial(raw, parser)
+                prompt = build_report_prompt(session, feedback)
+                raw = _call_model(model, prompt)
+
+                if not raw or raw.strip() in ("null", ""):
+                    raise ValueError(f"Empty response from model (attempt {attempt+1})")
+
+                report = _parse_report_json(raw)
 
                 total_words = count_report_words(report)
                 diff = abs(total_words - expected_words)
@@ -650,19 +700,19 @@ def generate_report(session: dict):
                     shortage = expected_words - total_words
                     feedback = (
                         f"CRITICAL: previous attempt wrote only {total_words} words. "
-                        f"Target is {expected_words}. You are SHORT by {shortage} words. "
+                        f"Target is {expected_words}. SHORT by {shortage} words. "
                         f"Write LONGER paragraphs ({int(words_per_page*0.4)}+ words each). "
-                        f"Add extra paragraph blocks until you reach {expected_words} words."
+                        f"Add more paragraph blocks to reach {expected_words} words."
                     )
                 else:
                     feedback = (
-                        f"Previous attempt wrote {total_words} words, target is {expected_words}. "
-                        f"Trim paragraphs slightly."
+                        f"Previous attempt: {total_words} words, target {expected_words}. "
+                        f"Slightly trim paragraphs."
                     )
 
             except Exception as e:
                 logger.warning(f"Attempt {attempt+1} failed: {e}")
-                feedback = "Output must be ONLY valid JSON matching the schema. No truncation."
+                feedback = "Return ONLY valid complete JSON. No truncation. No extra text."
                 if attempt == 1:
                     raise e
 
@@ -1590,4 +1640,3 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
-
