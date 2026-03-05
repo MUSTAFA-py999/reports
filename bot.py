@@ -1,3 +1,4 @@
+import random
 import os
 import asyncio
 import threading
@@ -392,17 +393,23 @@ def get_words_per_page(session: dict) -> int:
 
 
 # ------------------- دوال LLM -------------------
+GOOGLE_API_KEYS = [
+    os.getenv("GOOGLE_API_KEY"),
+    os.getenv("GOOGLE_API_KEY2"),
+    os.getenv("GOOGLE_API_KEY3"),
+]
+
 def get_llm():
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise Exception("GOOGLE_API_KEY not set")
+    keys = [k for k in GOOGLE_API_KEYS if k]
+    if not keys:
+        raise Exception("No GOOGLE_API_KEY set")
+    api_key = random.choice(keys)  # أو استخدم itertools.cycle للتدوير بالترتيب
     return ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
-        temperature=0.7,  # زيادة طفيفة لجعل النص أكثر طبيعية
+        temperature=0.7,
         google_api_key=api_key,
         max_retries=3
     )
-
 
 def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
     lang = LANGUAGES[language_key]
@@ -1633,3 +1640,4 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
+
