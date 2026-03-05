@@ -28,11 +28,11 @@ flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "✅ Repooreto Bot v5.4"
+    return "✅ Repooreto Bot v5.5"
 
 @flask_app.route('/health')
 def health():
-    return {"status": "healthy", "version": "5.4"}, 200
+    return {"status": "healthy", "version": "5.5"}, 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -140,9 +140,9 @@ class ReportBlock(BaseModel):
 
 class DynamicReport(BaseModel):
     title: str = Field(description="Report title")
-    introduction: str = Field(description="Introduction: 3-5 sentences. Direct and engaging.")
+    introduction: str = Field(description="Introduction: 2-3 short sentences.")
     blocks: List[ReportBlock] = Field(description="Content blocks")
-    conclusion: str = Field(description="Conclusion: 2-3 sentences. Must fit on same page.")
+    conclusion: str = Field(description="Conclusion: 1-2 sentences. Very brief.")
 
 
 # ------------------- الإعدادات والتكوين -------------------
@@ -272,7 +272,7 @@ SHOW_HEADER_FOOTER = {
     "no":  {"label": "❌ لا، أخفها", "show": False},
 }
 
-# خيارات العمق
+# خيارات العمق مع عدد الصفحات المستهدف وعدد الكلمات التقريبي
 DEPTH_OPTIONS = {
     "medium":   {"name": "📄 متوسط (3-4 صفحات)", "pages": 4,  "words_per_page": 400, "blocks_min": 5,  "blocks_max": 7},
     "detailed": {"name": "📚 مفصل (5-6 صفحات)",  "pages": 6,  "words_per_page": 400, "blocks_min": 7,  "blocks_max": 10},
@@ -347,12 +347,12 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
     answers = session.get("answers", [])
     custom_title = session.get("custom_title")
 
-    # حساب عدد الكلمات المستهدف
+    # حساب عدد الكلمات المستهدف بدقة
     target_pages = depth["pages"]
     words_per_page = depth["words_per_page"]
     target_words = target_pages * words_per_page
-    min_words = int(target_words * 0.9)
-    max_words = int(target_words * 1.1)
+    min_words = int(target_words * 0.9)   # نطاق 10% أقل
+    max_words = int(target_words * 1.1)   # نطاق 10% أكثر
 
     title_instruction = (
         f'TITLE: Use EXACTLY this title: "{custom_title}" — do not change it.'
@@ -376,13 +376,15 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
             f"══════════════════════════════════════"
         )
 
-    # تعليمات طول التقرير وأسلوب الكتابة
+    # تعليمات صارمة لضبط عدد الصفحات وتقصير المقدمة/الخاتمة
     length_instruction = (
-        f"\nLENGTH REQUIREMENTS:\n"
+        f"\nLENGTH REQUIREMENTS (CRITICAL - MUST FOLLOW EXACTLY):\n"
         f"- Target total word count: {target_words} words (range {min_words}-{max_words} words).\n"
-        f"- This is equivalent to approximately {target_pages} A4 pages with normal formatting.\n"
-        f"- Adjust the content length accordingly. Do NOT exceed {max_words} words.\n"
+        f"- This MUST result in approximately {target_pages} A4 pages with normal formatting.\n"
+        f"- DO NOT exceed {max_words} words.\n"
         f"- If you need to reduce words, shorten paragraphs or reduce examples, but keep all required sections.\n"
+        f"- The introduction MUST be VERY SHORT: 2-3 sentences only. Get straight to the point.\n"
+        f"- The conclusion MUST be EXTREMELY SHORT: 1-2 sentences only. A brief final thought.\n"
     )
 
     human_style_instruction = (
@@ -391,8 +393,6 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
         f"- Vary sentence lengths: mix short, medium, and long sentences.\n"
         f"- Use appropriate punctuation and transitions.\n"
         f"- Avoid repetitive sentence structures.\n"
-        f"- The introduction should be concise: 3-5 sentences only. Engage the reader briefly.\n"
-        f"- The conclusion must be VERY SHORT: 2-3 sentences. It must fit on the same page as the last block, so keep it extremely concise.\n"
     )
 
     table_instruction = (
@@ -439,8 +439,8 @@ PAGE FILLING:
 SPECIFIC NOTES:
 • No openers like "In this report" or "يتناول هذا التقرير". Start directly.
 • Paragraphs: strong claim → develop → twist or insight.
-• Introduction: 3-5 sentences only. Keep it brief.
-• Conclusion: 2-3 sentences only. It should provide a final thought, not a summary. It must fit on the same page, so keep it short.
+• Introduction: 2-3 sentences only. VERY SHORT.
+• Conclusion: 1-2 sentences only. VERY SHORT, just a final thought.
 • ALL text in the specified language. Conclusion is MANDATORY.
 
 {format_instructions}"""
@@ -452,7 +452,7 @@ def count_words(text: str) -> int:
 
 
 def generate_report(session: dict):
-    """توليد تقرير PDF مع التحكم في عدد الصفحات"""
+    """توليد تقرير PDF مع التحكم الدقيق في عدد الصفحات"""
     try:
         llm = get_llm()
         parser = PydanticOutputParser(pydantic_object=DynamicReport)
@@ -460,12 +460,22 @@ def generate_report(session: dict):
 
         best_report = None
         best_diff = float('inf')
+        best_words = 0
 
-        for attempt in range(3):
+        depth_key = session.get("depth", "medium")
+        target_pages = DEPTH_OPTIONS[depth_key]["pages"]
+        words_per_page = DEPTH_OPTIONS[depth_key]["words_per_page"]
+        expected_words = target_pages * words_per_page
+        min_words = int(expected_words * 0.9)
+        max_words = int(expected_words * 1.1)
+
+        # عدة محاولات للعثور على تقرير ضمن النطاق المطلوب
+        for attempt in range(5):  # زيادة عدد المحاولات
             try:
                 result = llm.invoke([HumanMessage(content=prompt)])
                 report = parser.parse(result.content)
 
+                # حساب إجمالي الكلمات
                 total_words = (
                     count_words(report.title) +
                     count_words(report.introduction) +
@@ -477,25 +487,35 @@ def generate_report(session: dict):
                     count_words(report.conclusion)
                 )
 
-                depth_key = session.get("depth", "medium")
-                target_pages = DEPTH_OPTIONS[depth_key]["pages"]
-                words_per_page = DEPTH_OPTIONS[depth_key]["words_per_page"]
-                expected_words = target_pages * words_per_page
+                # التحقق من طول المقدمة (2-3 جمل) والخاتمة (1-2 جمل)
+                intro_sentences = len([s for s in report.introduction.split('.') if s.strip()])
+                conclusion_sentences = len([s for s in report.conclusion.split('.') if s.strip()])
+
+                intro_ok = 2 <= intro_sentences <= 3
+                conclusion_ok = 1 <= conclusion_sentences <= 2
+
                 diff = abs(total_words - expected_words)
 
-                if diff < best_diff:
+                # إذا كان العدد ضمن النطاق والمقدمة والخاتمة قصيرتان، نختار هذا التقرير فوراً
+                if min_words <= total_words <= max_words and intro_ok and conclusion_ok:
+                    best_report = report
+                    best_diff = diff
+                    break
+
+                # وإلا نحتفظ بالأقرب للعدد المستهدف
+                if diff < best_diff and intro_ok and conclusion_ok:
                     best_diff = diff
                     best_report = report
-
-                if diff <= expected_words * 0.1:
-                    break
+                    best_words = total_words
 
             except Exception as e:
                 logger.warning(f"Parse attempt {attempt+1} failed: {e}")
-                if attempt == 2:
+                if attempt == 4:
                     raise e
 
         if best_report is None:
+            # إذا لم نجد أي تقرير صالح، نستخدم آخر محاولة ناجحة (حتى لو لم تكن ضمن النطاق)
+            # ولكن نادراً ما يحدث ذلك
             raise Exception("Failed to generate valid report")
 
         html_str = render_html(best_report, session)
@@ -1518,9 +1538,9 @@ if __name__ == '__main__':
         app.add_handler(CallbackQueryHandler(comp_no_callback, pattern=r'^comp_no$'))
         app.add_error_handler(error_handler)
 
-        logger.info("👻 Repooreto Bot v5.4 Ready!")
+        logger.info("👻 Repooreto Bot v5.5 Ready!")
         print("=" * 60)
-        print("👻 Repooreto — Smart University Reports Bot v5.4")
+        print("👻 Repooreto — Smart University Reports Bot v5.5")
         print("=" * 60)
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
