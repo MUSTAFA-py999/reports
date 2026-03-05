@@ -1,4 +1,3 @@
-import random
 import os
 import asyncio
 import threading
@@ -393,23 +392,30 @@ def get_words_per_page(session: dict) -> int:
 
 
 # ------------------- دوال LLM -------------------
-GOOGLE_API_KEYS = [
-    os.getenv("GOOGLE_API_KEY"),
-    os.getenv("GOOGLE_API_KEY2"),
-    os.getenv("GOOGLE_API_KEY3"),
-]
+_api_key_cycle = None
 
 def get_llm():
-    keys = [k for k in GOOGLE_API_KEYS if k]
+    global _api_key_cycle
+    import itertools
+    keys = [
+        os.getenv("GOOGLE_API_KEY"),
+        os.getenv("GOOGLE_API_KEY2"),
+        os.getenv("GOOGLE_API_KEY3"),
+    ]
+    keys = [k for k in keys if k]
     if not keys:
         raise Exception("No GOOGLE_API_KEY set")
-    api_key = random.choice(keys)  # أو استخدم itertools.cycle للتدوير بالترتيب
+    if _api_key_cycle is None:
+        _api_key_cycle = itertools.cycle(keys)
+    api_key = next(_api_key_cycle)
+    logger.info(f"🔑 Using API key ending: ...{api_key[-6:]}")
     return ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
         temperature=0.7,
         google_api_key=api_key,
         max_retries=3
     )
+
 
 def generate_dynamic_questions(topic: str, language_key: str) -> List[str]:
     lang = LANGUAGES[language_key]
@@ -459,16 +465,28 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
             f"══════════════════════════════════════"
         )
 
+    # حساب كلمات الفقرة المناسب حسب العمق
+    paragraph_words = max(80, min(200, target_words // max(depth["blocks_min"], 1) - 20))
+    para_min = max(60, paragraph_words - 30)
+    para_max = paragraph_words + 30
+
     # تعليمات صارمة لضبط عدد الصفحات وتقصير المقدمة/الخاتمة
     length_instruction = (
-        f"\nLENGTH REQUIREMENTS (CRITICAL - MUST FOLLOW EXACTLY):\n"
-        f"- Target total word count: {target_words} words (range {min_words}-{max_words} words).\n"
-        f"- This MUST result in approximately {target_pages} A4 pages.\n"
-        f"- Formatting context: ~{words_per_page} words fit per page with the chosen font/spacing/margin settings.\n"
-        f"- DO NOT exceed {max_words} words under any circumstance.\n"
-        f"- If you need to reduce words, shorten paragraphs or reduce examples, but keep all required sections.\n"
-        f"- The introduction MUST be VERY SHORT: 2-3 sentences only. Get straight to the point.\n"
-        f"- The conclusion MUST be EXTREMELY SHORT: 1-2 sentences only. A brief final thought.\n"
+        f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"LENGTH — ABSOLUTE RULES (VIOLATIONS NOT ACCEPTED):\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• TOTAL words: {target_words} words. Hard range: {min_words}–{max_words}.\n"
+        f"• Each page holds ~{words_per_page} words (based on font/spacing/margin).\n"
+        f"• Target: {target_pages} A4 pages.\n"
+        f"\n"
+        f"• INTRODUCTION: MAXIMUM 2 sentences. NOT 3. NOT 4. TWO sentences only.\n"
+        f"  Example length: 'X is important. This report examines Y and Z.'\n"
+        f"• CONCLUSION: MAXIMUM 1 sentence. ONE sentence. Period.\n"
+        f"  Example: 'In summary, X remains the leading approach for Y.'\n"
+        f"\n"
+        f"• Each paragraph block: {para_min}–{para_max} words.\n"
+        f"• DO NOT write long introductions or conclusions. They waste page space.\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     )
 
     human_style_instruction = (
@@ -502,7 +520,7 @@ STUDENT'S REQUIREMENTS:
 
 ══════════════════════════════════════
 BLOCK TYPES:
-- "paragraph"     → "text": 150-200 words. Use \\n for natural breaks (3-5 times).
+- "paragraph"     → "text": {para_min}-{para_max} words. Use \\n for natural breaks.
 - "bullets"       → "items": 5-7. 40% with " — " sub-note, 60% standalone.
 - "numbered_list" → "items": 5-7. Same rule.
 - "table"         → "headers" + "rows" (max 6 rows). Max 2 per report.
@@ -516,15 +534,15 @@ BLOCK TYPES:
 {human_style_instruction}
 
 PAGE FILLING:
-• After a short block, the next block MUST be a paragraph of 150-200 words.
+• After a short block, the next block MUST be a paragraph of {para_min}-{para_max} words.
 • Never place two consecutive short blocks.
 • 45% paragraphs | 35% lists | 20% tables (max 2 total).
 
 SPECIFIC NOTES:
 • No openers like "In this report" or "يتناول هذا التقرير". Start directly.
 • Paragraphs: strong claim → develop → twist or insight.
-• Introduction: 2-3 sentences only. VERY SHORT.
-• Conclusion: 1-2 sentences only. VERY SHORT, just a final thought.
+• Introduction: 2 sentences MAX. EXTREMELY SHORT.
+• Conclusion: 1 sentence MAX. Just a final thought.
 • ALL text in the specified language. Conclusion is MANDATORY.
 
 {format_instructions}"""
@@ -533,6 +551,14 @@ SPECIFIC NOTES:
 def count_words(text: str) -> int:
     """تقدير عدد الكلمات في النص"""
     return len(text.split())
+
+
+def truncate_to_sentences(text: str, max_sentences: int) -> str:
+    """يقتطع النص إلى عدد محدد من الجمل كحد أقصى."""
+    sentences = [s.strip() for s in text.replace('؟', '.').replace('!', '.').split('.') if s.strip()]
+    if len(sentences) <= max_sentences:
+        return text
+    return '. '.join(sentences[:max_sentences]) + '.'
 
 
 def generate_report(session: dict):
@@ -544,72 +570,66 @@ def generate_report(session: dict):
 
         best_report = None
         best_diff = float('inf')
-        best_words = 0
 
         depth_key = session.get("depth", "medium")
         target_pages   = DEPTH_OPTIONS[depth_key]["pages"]
-        # ── الكلمات المستهدفة محسوبة بدقة حسب التنسيق الفعلي ──
         words_per_page = get_words_per_page(session)
         expected_words = target_pages * words_per_page
         min_words      = int(expected_words * 0.88)
         max_words      = int(expected_words * 1.12)
         logger.info(
-            f"📐 Word target: {expected_words} words "
+            f"📐 Word target: {expected_words} "
             f"({words_per_page}/page × {target_pages} pages) "
-            f"| range [{min_words}-{max_words}] "
-            f"| font={session.get('custom_font_size_key','preset')} "
-            f"lh={session.get('custom_line_height','preset')} "
-            f"margin={session.get('custom_page_margin','preset')}"
+            f"range [{min_words}-{max_words}]"
         )
 
-        # عدة محاولات للعثور على تقرير ضمن النطاق المطلوب
-        for attempt in range(5):  # زيادة عدد المحاولات
+        last_report = None
+        for attempt in range(5):
             try:
                 result = llm.invoke([HumanMessage(content=prompt)])
                 report = parser.parse(result.content)
+                last_report = report
 
-                # حساب إجمالي الكلمات
+                # ── إجبار المقدمة على جملتين والخاتمة على جملة واحدة ──
+                report.introduction = truncate_to_sentences(report.introduction, 2)
+                report.conclusion   = truncate_to_sentences(report.conclusion, 1)
+
                 total_words = (
                     count_words(report.title) +
                     count_words(report.introduction) +
                     sum(count_words(block.text or "") for block in report.blocks if block.block_type == "paragraph") +
-                    sum(len(block.items or []) for block in report.blocks if block.block_type in ("bullets", "numbered_list", "stats", "examples")) +
-                    sum(len(block.pros or []) + len(block.cons or []) for block in report.blocks if block.block_type == "pros_cons") +
-                    sum(len(block.rows or []) * len(block.headers or []) for block in report.blocks if block.block_type == "table") +
-                    sum(len(block.criteria or []) for block in report.blocks if block.block_type == "comparison") +
+                    sum(len(block.items or []) * 8 for block in report.blocks if block.block_type in ("bullets", "numbered_list", "stats", "examples")) +
+                    sum((len(block.pros or []) + len(block.cons or [])) * 8 for block in report.blocks if block.block_type == "pros_cons") +
+                    sum(len(block.rows or []) * len(block.headers or []) * 5 for block in report.blocks if block.block_type == "table") +
+                    sum(len(block.criteria or []) * 8 for block in report.blocks if block.block_type == "comparison") +
                     count_words(report.conclusion)
                 )
 
-                # التحقق من طول المقدمة (2-3 جمل) والخاتمة (1-2 جمل)
-                intro_sentences = len([s for s in report.introduction.split('.') if s.strip()])
-                conclusion_sentences = len([s for s in report.conclusion.split('.') if s.strip()])
-
-                intro_ok = 2 <= intro_sentences <= 3
-                conclusion_ok = 1 <= conclusion_sentences <= 2
-
                 diff = abs(total_words - expected_words)
+                logger.info(f"  attempt {attempt+1}: {total_words} words (target {expected_words}, diff {diff})")
 
-                # إذا كان العدد ضمن النطاق والمقدمة والخاتمة قصيرتان، نختار هذا التقرير فوراً
-                if min_words <= total_words <= max_words and intro_ok and conclusion_ok:
+                if min_words <= total_words <= max_words:
                     best_report = report
-                    best_diff = diff
                     break
 
-                # وإلا نحتفظ بالأقرب للعدد المستهدف
-                if diff < best_diff and intro_ok and conclusion_ok:
+                if diff < best_diff:
                     best_diff = diff
                     best_report = report
-                    best_words = total_words
 
             except Exception as e:
                 logger.warning(f"Parse attempt {attempt+1} failed: {e}")
-                if attempt == 4:
+                if attempt == 4 and last_report is None:
                     raise e
 
+        # إذا لم نجد ضمن النطاق نستخدم الأقرب
         if best_report is None:
-            # لم نجد تقريراً يحترم طول المقدمة/الخاتمة — نأخذ آخر تقرير تم تحليله
-            logger.warning("⚠️ No report met all constraints, using last successful parse")
-            raise Exception("Failed to generate valid report after 5 attempts")
+            if last_report:
+                best_report = last_report
+                best_report.introduction = truncate_to_sentences(best_report.introduction, 2)
+                best_report.conclusion   = truncate_to_sentences(best_report.conclusion, 1)
+                logger.warning("⚠️ Using closest report outside target range")
+            else:
+                raise Exception("Failed to generate valid report after 5 attempts")
 
         html_str = render_html(best_report, session)
         pdf_bytes = WeasyHTML(string=html_str).write_pdf()
@@ -1640,4 +1660,3 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"❌ Startup failed: {e}", exc_info=True)
         exit(1)
-
