@@ -1,7 +1,5 @@
-Flask
-python-telegram-bot
-langchain-google-genai
-langchain-core
+flask
+python-telegram-bot==20.7
+google-generativeai
 pydantic
 weasyprint
-python-docx
