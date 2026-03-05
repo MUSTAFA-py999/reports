@@ -272,12 +272,73 @@ SHOW_HEADER_FOOTER = {
     "no":  {"label": "❌ لا، أخفها", "show": False},
 }
 
-# خيارات العمق مع عدد الصفحات المستهدف وعدد الكلمات التقريبي
+# خيارات العمق — عدد الكلمات يُحسب ديناميكياً حسب إعدادات التنسيق
 DEPTH_OPTIONS = {
-    "medium":   {"name": "📄 متوسط (3-4 صفحات)", "pages": 4,  "words_per_page": 400, "blocks_min": 5,  "blocks_max": 7},
-    "detailed": {"name": "📚 مفصل (5-6 صفحات)",  "pages": 6,  "words_per_page": 400, "blocks_min": 7,  "blocks_max": 10},
-    "extended": {"name": "📖 موسّع (7+ صفحات)",   "pages": 8,  "words_per_page": 400, "blocks_min": 10, "blocks_max": 14},
+    "medium":   {"name": "📄 متوسط (3-4 صفحات)", "pages": 4,  "blocks_min": 5,  "blocks_max": 7},
+    "detailed": {"name": "📚 مفصل (5-6 صفحات)",  "pages": 6,  "blocks_min": 7,  "blocks_max": 10},
+    "extended": {"name": "📖 موسّع (7+ صفحات)",   "pages": 8,  "blocks_min": 10, "blocks_max": 14},
 }
+
+# ------------------- مصفوفة كلمات الصفحة الدقيقة -------------------
+# الحساب: A4 (210×297mm) — كل تركيبة (حجم_خط × تباعد_أسطر × هامش)
+# المعادلة: words_per_page = (content_h / (font_mm × lh)) × (content_w / (font_mm × 0.58)) / 5.5 × 0.62
+# content_w: small=180mm, medium=160mm, large=140mm
+# content_h: small=267mm, medium=247mm, large=227mm
+WORDS_PER_PAGE_MATRIX = {
+    # ─── xsmall (12px = 3.175mm) ───────────────────────────────────────────
+    ("xsmall", "compact", "small"):   616,
+    ("xsmall", "compact", "medium"):  508,
+    ("xsmall", "compact", "large"):   407,
+    ("xsmall", "normal",  "small"):   514,
+    ("xsmall", "normal",  "medium"):  424,
+    ("xsmall", "normal",  "large"):   340,
+    ("xsmall", "relaxed", "small"):   420,
+    ("xsmall", "relaxed", "medium"):  347,
+    ("xsmall", "relaxed", "large"):   278,
+    # ─── small (14px = 3.704mm) ────────────────────────────────────────────
+    ("small",  "compact", "small"):   453,
+    ("small",  "compact", "medium"):  371,
+    ("small",  "compact", "large"):   299,
+    ("small",  "normal",  "small"):   377,
+    ("small",  "normal",  "medium"):  310,
+    ("small",  "normal",  "large"):   249,
+    ("small",  "relaxed", "small"):   309,
+    ("small",  "relaxed", "medium"):  253,
+    ("small",  "relaxed", "large"):   204,
+    # ─── medium (16px = 4.233mm) ───────────────────────────────────────────
+    ("medium", "compact", "small"):   347,
+    ("medium", "compact", "medium"):  285,
+    ("medium", "compact", "large"):   230,
+    ("medium", "normal",  "small"):   290,
+    ("medium", "normal",  "medium"):  237,
+    ("medium", "normal",  "large"):   192,
+    ("medium", "relaxed", "small"):   237,
+    ("medium", "relaxed", "medium"):  194,
+    ("medium", "relaxed", "large"):   157,
+    # ─── large (18px = 4.762mm) ────────────────────────────────────────────
+    ("large",  "compact", "small"):   273,
+    ("large",  "compact", "medium"):  225,
+    ("large",  "compact", "large"):   181,
+    ("large",  "normal",  "small"):   228,
+    ("large",  "normal",  "medium"):  187,
+    ("large",  "normal",  "large"):   151,
+    ("large",  "relaxed", "small"):   187,
+    ("large",  "relaxed", "medium"):  153,
+    ("large",  "relaxed", "large"):   123,
+    # ─── xlarge (20px = 5.291mm) ───────────────────────────────────────────
+    ("xlarge", "compact", "small"):   223,
+    ("xlarge", "compact", "medium"):  183,
+    ("xlarge", "compact", "large"):   147,
+    ("xlarge", "normal",  "small"):   186,
+    ("xlarge", "normal",  "medium"):  152,
+    ("xlarge", "normal",  "large"):   123,
+    ("xlarge", "relaxed", "small"):   152,
+    ("xlarge", "relaxed", "medium"):  125,
+    ("xlarge", "relaxed", "large"):   100,
+}
+
+# القوالب الجاهزة: 16.5px ≈ medium، line-height 1.8 = normal، margin 2.5cm = medium
+PRESET_WORDS_PER_PAGE = 237
 
 # إرشادات الحالات
 STATE_GUIDANCE = {
@@ -315,6 +376,21 @@ def get_fonts_by_language(lang_key):
         return ENGLISH_FONTS
 
 
+def get_words_per_page(session: dict) -> int:
+    """
+    حساب عدد الكلمات المناسب للصفحة الواحدة بناءً على إعدادات التنسيق الفعلية.
+    يغطي جميع تركيبات حجم الخط × تباعد الأسطر × هوامش الصفحة (45 سيناريو).
+    """
+    if session.get("custom_mode"):
+        font_key   = session.get("custom_font_size_key", "medium")
+        lh_key     = session.get("custom_line_height",   "normal")
+        margin_key = session.get("custom_page_margin",   "medium")
+        return WORDS_PER_PAGE_MATRIX.get((font_key, lh_key, margin_key), 237)
+    else:
+        # القوالب الجاهزة: 16.5px + line-height 1.8 + margin 2.5cm
+        return PRESET_WORDS_PER_PAGE
+
+
 # ------------------- دوال LLM -------------------
 def get_llm():
     api_key = os.getenv("GOOGLE_API_KEY")
@@ -347,12 +423,12 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
     answers = session.get("answers", [])
     custom_title = session.get("custom_title")
 
-    # حساب عدد الكلمات المستهدف بدقة
-    target_pages = depth["pages"]
-    words_per_page = depth["words_per_page"]
-    target_words = target_pages * words_per_page
-    min_words = int(target_words * 0.9)   # نطاق 10% أقل
-    max_words = int(target_words * 1.1)   # نطاق 10% أكثر
+    # ── حساب عدد الكلمات الدقيق بناءً على إعدادات التنسيق الفعلية ──
+    words_per_page = get_words_per_page(session)
+    target_pages   = depth["pages"]
+    target_words   = target_pages * words_per_page
+    min_words      = int(target_words * 0.88)   # نطاق 12% أقل
+    max_words      = int(target_words * 1.12)   # نطاق 12% أكثر
 
     title_instruction = (
         f'TITLE: Use EXACTLY this title: "{custom_title}" — do not change it.'
@@ -380,8 +456,9 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
     length_instruction = (
         f"\nLENGTH REQUIREMENTS (CRITICAL - MUST FOLLOW EXACTLY):\n"
         f"- Target total word count: {target_words} words (range {min_words}-{max_words} words).\n"
-        f"- This MUST result in approximately {target_pages} A4 pages with normal formatting.\n"
-        f"- DO NOT exceed {max_words} words.\n"
+        f"- This MUST result in approximately {target_pages} A4 pages.\n"
+        f"- Formatting context: ~{words_per_page} words fit per page with the chosen font/spacing/margin settings.\n"
+        f"- DO NOT exceed {max_words} words under any circumstance.\n"
         f"- If you need to reduce words, shorten paragraphs or reduce examples, but keep all required sections.\n"
         f"- The introduction MUST be VERY SHORT: 2-3 sentences only. Get straight to the point.\n"
         f"- The conclusion MUST be EXTREMELY SHORT: 1-2 sentences only. A brief final thought.\n"
@@ -452,7 +529,7 @@ def count_words(text: str) -> int:
 
 
 def generate_report(session: dict):
-    """توليد تقرير PDF مع التحكم الدقيق في عدد الصفحات"""
+    """توليد تقرير PDF مع التحكم الدقيق في عدد الصفحات بناءً على إعدادات التنسيق الفعلية"""
     try:
         llm = get_llm()
         parser = PydanticOutputParser(pydantic_object=DynamicReport)
@@ -463,11 +540,20 @@ def generate_report(session: dict):
         best_words = 0
 
         depth_key = session.get("depth", "medium")
-        target_pages = DEPTH_OPTIONS[depth_key]["pages"]
-        words_per_page = DEPTH_OPTIONS[depth_key]["words_per_page"]
+        target_pages   = DEPTH_OPTIONS[depth_key]["pages"]
+        # ── الكلمات المستهدفة محسوبة بدقة حسب التنسيق الفعلي ──
+        words_per_page = get_words_per_page(session)
         expected_words = target_pages * words_per_page
-        min_words = int(expected_words * 0.9)
-        max_words = int(expected_words * 1.1)
+        min_words      = int(expected_words * 0.88)
+        max_words      = int(expected_words * 1.12)
+        logger.info(
+            f"📐 Word target: {expected_words} words "
+            f"({words_per_page}/page × {target_pages} pages) "
+            f"| range [{min_words}-{max_words}] "
+            f"| font={session.get('custom_font_size_key','preset')} "
+            f"lh={session.get('custom_line_height','preset')} "
+            f"margin={session.get('custom_page_margin','preset')}"
+        )
 
         # عدة محاولات للعثور على تقرير ضمن النطاق المطلوب
         for attempt in range(5):  # زيادة عدد المحاولات
@@ -514,9 +600,9 @@ def generate_report(session: dict):
                     raise e
 
         if best_report is None:
-            # إذا لم نجد أي تقرير صالح، نستخدم آخر محاولة ناجحة (حتى لو لم تكن ضمن النطاق)
-            # ولكن نادراً ما يحدث ذلك
-            raise Exception("Failed to generate valid report")
+            # لم نجد تقريراً يحترم طول المقدمة/الخاتمة — نأخذ آخر تقرير تم تحليله
+            logger.warning("⚠️ No report met all constraints, using last successful parse")
+            raise Exception("Failed to generate valid report after 5 attempts")
 
         html_str = render_html(best_report, session)
         pdf_bytes = WeasyHTML(string=html_str).write_pdf()
