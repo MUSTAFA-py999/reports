@@ -254,7 +254,7 @@ LINE_HEIGHTS = {
 
 # هوامش الصفحة
 PAGE_MARGINS = {
-    "small":  {"label": "🔹 ضيقة (1.5 سم)", "value": "1.5cm"},
+    "small":  {"label": "🔹 ضيقة (0.8 سم)", "value": "0.8cm"},
     "medium": {"label": "🔸 متوسطة (2.5 سم)", "value": "2.5cm"},
     "large":  {"label": "🔻 واسعة (3.5 سم)", "value": "3.5cm"},
 }
@@ -285,60 +285,60 @@ DEPTH_OPTIONS = {
 # content_w: small=180mm, medium=160mm, large=140mm
 # content_h: small=267mm, medium=247mm, large=227mm
 WORDS_PER_PAGE_MATRIX = {
-    # ─── xsmall (12px = 3.175mm) ───────────────────────────────────────────
-    ("xsmall", "compact", "small"):   616,
-    ("xsmall", "compact", "medium"):  508,
-    ("xsmall", "compact", "large"):   407,
-    ("xsmall", "normal",  "small"):   514,
-    ("xsmall", "normal",  "medium"):  424,
-    ("xsmall", "normal",  "large"):   340,
-    ("xsmall", "relaxed", "small"):   420,
-    ("xsmall", "relaxed", "medium"):  347,
-    ("xsmall", "relaxed", "large"):   278,
-    # ─── small (14px = 3.704mm) ────────────────────────────────────────────
-    ("small",  "compact", "small"):   453,
+    # ─── xsmall (12px / 3.18mm) ────────────────────────────────
+    ("xsmall", "compact", "small"):   693,
+    ("xsmall", "compact", "medium"):  502,
+    ("xsmall", "compact", "large"):   418,
+    ("xsmall", "normal",  "small"):   578,
+    ("xsmall", "normal",  "medium"):  419,
+    ("xsmall", "normal",  "large"):   348,
+    ("xsmall", "relaxed", "small"):   473,
+    ("xsmall", "relaxed", "medium"):  342,
+    ("xsmall", "relaxed", "large"):   285,
+    # ─── small (14px / 3.70mm) ─────────────────────────────────
+    ("small",  "compact", "small"):   512,
     ("small",  "compact", "medium"):  371,
-    ("small",  "compact", "large"):   299,
-    ("small",  "normal",  "small"):   377,
-    ("small",  "normal",  "medium"):  310,
-    ("small",  "normal",  "large"):   249,
-    ("small",  "relaxed", "small"):   309,
+    ("small",  "compact", "large"):   309,
+    ("small",  "normal",  "small"):   427,
+    ("small",  "normal",  "medium"):  309,
+    ("small",  "normal",  "large"):   257,
+    ("small",  "relaxed", "small"):   349,
     ("small",  "relaxed", "medium"):  253,
-    ("small",  "relaxed", "large"):   204,
-    # ─── medium (16px = 4.233mm) ───────────────────────────────────────────
-    ("medium", "compact", "small"):   347,
-    ("medium", "compact", "medium"):  285,
-    ("medium", "compact", "large"):   230,
-    ("medium", "normal",  "small"):   290,
-    ("medium", "normal",  "medium"):  237,
-    ("medium", "normal",  "large"):   192,
-    ("medium", "relaxed", "small"):   237,
-    ("medium", "relaxed", "medium"):  194,
-    ("medium", "relaxed", "large"):   157,
-    # ─── large (18px = 4.762mm) ────────────────────────────────────────────
-    ("large",  "compact", "small"):   273,
-    ("large",  "compact", "medium"):  225,
-    ("large",  "compact", "large"):   181,
-    ("large",  "normal",  "small"):   228,
+    ("small",  "relaxed", "large"):   210,
+    # ─── medium (16px / 4.23mm) ────────────────────────────────
+    ("medium", "compact", "small"):   392,
+    ("medium", "compact", "medium"):  284,
+    ("medium", "compact", "large"):   236,
+    ("medium", "normal",  "small"):   326,
+    ("medium", "normal",  "medium"):  236,
+    ("medium", "normal",  "large"):   197,
+    ("medium", "relaxed", "small"):   267,
+    ("medium", "relaxed", "medium"):  193,
+    ("medium", "relaxed", "large"):   161,
+    # ─── large (18px / 4.76mm) ─────────────────────────────────
+    ("large",  "compact", "small"):   309,
+    ("large",  "compact", "medium"):  224,
+    ("large",  "compact", "large"):   186,
+    ("large",  "normal",  "small"):   258,
     ("large",  "normal",  "medium"):  187,
-    ("large",  "normal",  "large"):   151,
-    ("large",  "relaxed", "small"):   187,
+    ("large",  "normal",  "large"):   155,
+    ("large",  "relaxed", "small"):   211,
     ("large",  "relaxed", "medium"):  153,
-    ("large",  "relaxed", "large"):   123,
-    # ─── xlarge (20px = 5.291mm) ───────────────────────────────────────────
-    ("xlarge", "compact", "small"):   223,
-    ("xlarge", "compact", "medium"):  183,
-    ("xlarge", "compact", "large"):   147,
-    ("xlarge", "normal",  "small"):   186,
-    ("xlarge", "normal",  "medium"):  152,
-    ("xlarge", "normal",  "large"):   123,
-    ("xlarge", "relaxed", "small"):   152,
-    ("xlarge", "relaxed", "medium"):  125,
-    ("xlarge", "relaxed", "large"):   100,
+    ("large",  "relaxed", "large"):   127,
+    # ─── xlarge (20px / 5.29mm) ────────────────────────────────
+    ("xlarge", "compact", "small"):   250,
+    ("xlarge", "compact", "medium"):  181,
+    ("xlarge", "compact", "large"):   151,
+    ("xlarge", "normal",  "small"):   208,
+    ("xlarge", "normal",  "medium"):  151,
+    ("xlarge", "normal",  "large"):   126,
+    ("xlarge", "relaxed", "small"):   170,
+    ("xlarge", "relaxed", "medium"):  123,
+    ("xlarge", "relaxed", "large"):   103,
 }
 
 # القوالب الجاهزة: 16.5px ≈ medium، line-height 1.8 = normal، margin 2.5cm = medium
-PRESET_WORDS_PER_PAGE = 237
+PRESET_WORDS_PER_PAGE = 236
 
 # إرشادات الحالات
 STATE_GUIDANCE = {
@@ -479,10 +479,10 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
         f"• Each page holds ~{words_per_page} words (based on font/spacing/margin).\n"
         f"• Target: {target_pages} A4 pages.\n"
         f"\n"
-        f"• INTRODUCTION: MAXIMUM 2 sentences. NOT 3. NOT 4. TWO sentences only.\n"
-        f"  Example length: 'X is important. This report examines Y and Z.'\n"
-        f"• CONCLUSION: MAXIMUM 1 sentence. ONE sentence. Period.\n"
-        f"  Example: 'In summary, X remains the leading approach for Y.'\n"
+        f"• INTRODUCTION: 1 sentence ONLY. One. Single. Sentence.\n"
+        f"  Example: 'This report examines X through the lens of Y and Z.'\n"
+        f"• CONCLUSION: 1 sentence ONLY. Period.\n"
+        f"  Example: 'X remains the dominant approach due to Y.'\n"
         f"\n"
         f"• Each paragraph block: {para_min}–{para_max} words.\n"
         f"• DO NOT write long introductions or conclusions. They waste page space.\n"
@@ -490,18 +490,11 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
     )
 
     human_style_instruction = (
-        f"\nWRITING STYLE:\n"
-        f"- Write in a natural, human-like academic style.\n"
-        f"- Vary sentence lengths: mix short, medium, and long sentences.\n"
-        f"- Use appropriate punctuation and transitions.\n"
-        f"- Avoid repetitive sentence structures.\n"
+        "\nSTYLE: Natural academic writing. Vary sentence lengths. No repetitive structures.\n"
     )
 
     table_instruction = (
-        f"\nTABLE REQUIREMENTS:\n"
-        f"- For any table (including comparison, stats, pros_cons), limit rows to MAXIMUM 6.\n"
-        f"- Ensure the entire table fits on one page. If it might split, reduce rows.\n"
-        f"- Never let a table break across pages.\n"
+        "\nTABLES: Max 6 rows per table. Must fit on one page. No cross-page tables.\n"
     )
 
     return f"""You are a skilled academic writer. Write a university report that feels GENUINELY HUMAN-WRITTEN.
@@ -590,8 +583,8 @@ def generate_report(session: dict):
                 report = parser.parse(result.content)
                 last_report = report
 
-                # ── إجبار المقدمة على جملتين والخاتمة على جملة واحدة ──
-                report.introduction = truncate_to_sentences(report.introduction, 2)
+                # ── إجبار المقدمة على جملة واحدة والخاتمة على جملة واحدة ──
+                report.introduction = truncate_to_sentences(report.introduction, 1)
                 report.conclusion   = truncate_to_sentences(report.conclusion, 1)
 
                 total_words = (
@@ -625,7 +618,7 @@ def generate_report(session: dict):
         if best_report is None:
             if last_report:
                 best_report = last_report
-                best_report.introduction = truncate_to_sentences(best_report.introduction, 2)
+                best_report.introduction = truncate_to_sentences(best_report.introduction, 1)
                 best_report.conclusion   = truncate_to_sentences(best_report.conclusion, 1)
                 logger.warning("⚠️ Using closest report outside target range")
             else:
@@ -906,7 +899,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
         if header_color == "auto":
             header_color = a
         header_size = HEADER_STYLES[header_style_key]["size"]
-        show_hf = SHOW_HEADER_FOOTER[session.get("custom_show_header_footer", "yes")]["show"]
+        show_hf = False   # الترويسة مخفية دائماً
     else:
         tc = TEMPLATES[template_name]
         p, a, bg, bg2 = tc["primary"], tc["accent"], tc["bg"], tc["bg2"]
@@ -916,7 +909,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
         page_margin = "2.5cm"
         header_color = p
         header_size = "24px"
-        show_hf = True
+        show_hf = False   # الترويسة مخفية دائماً
 
     tc_dict = {"primary": p, "accent": a, "bg": bg, "bg2": bg2}
     dir_ = lang["dir"]
@@ -1371,11 +1364,10 @@ async def style_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         session["custom_line_height"] = "normal"
         session["custom_page_margin"] = "medium"
         session["custom_header_style"] = "colored"
-        session["custom_show_header_footer"] = "yes"
         session["state"] = "choosing_font_size"
         await query.edit_message_text(
             "🎨 <b>رحلة التخصيص بدأت! 👻</b>\n\n"
-            "📐 <b>الخطوة 1 من 6 — حجم الخط:</b>\n"
+            "📐 <b>الخطوة 1 من 5 — حجم الخط:</b>\n"
             "اختر الحجم الذي يريح عينيك 👇",
             reply_markup=font_size_keyboard(), parse_mode='HTML'
         )
@@ -1398,7 +1390,7 @@ async def font_size_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang_key = session.get("language", "ar")
     await query.edit_message_text(
         f"✅ <b>الحجم:</b> {CUSTOM_FONT_SIZES[key]['label']}\n\n"
-        "✍️ <b>الخطوة 2 من 6 — نوع الخط:</b>\n"
+        "✍️ <b>الخطوة 2 من 5 — نوع الخط:</b>\n"
         "اختر الخط المناسب 👇",
         reply_markup=font_keyboard_for_language(lang_key), parse_mode='HTML'
     )
@@ -1420,7 +1412,7 @@ async def font_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["state"] = "choosing_colors"
     await query.edit_message_text(
         f"✅ <b>الخط:</b> {CUSTOM_FONTS[key]['label']}\n\n"
-        "🎨 <b>الخطوة 3 من 6 — نظام الألوان:</b>\n"
+        "🎨 <b>الخطوة 3 من 5 — نظام الألوان:</b>\n"
         "اختر الروح البصرية لتقريرك 👇",
         reply_markup=colors_keyboard(), parse_mode='HTML'
     )
@@ -1442,7 +1434,7 @@ async def colors_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["state"] = "choosing_line_height"
     await query.edit_message_text(
         f"✅ <b>الألوان:</b> {CUSTOM_COLORS[key]['label']}\n\n"
-        "📏 <b>الخطوة 4 من 6 — تباعد الأسطر:</b>\n"
+        "📏 <b>الخطوة 4 من 5 — تباعد الأسطر:</b>\n"
         "اختر المسافة بين السطور 👇",
         reply_markup=line_height_keyboard(), parse_mode='HTML'
     )
@@ -1464,7 +1456,7 @@ async def line_height_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     session["state"] = "choosing_page_margin"
     await query.edit_message_text(
         f"✅ <b>تباعد الأسطر:</b> {LINE_HEIGHTS[key]['label']}\n\n"
-        "📐 <b>الخطوة 5 من 6 — هوامش الصفحة:</b>\n"
+        "📐 <b>الخطوة 5 من 5 — هوامش الصفحة:</b>\n"
         "اختر حجم الهوامش 👇",
         reply_markup=page_margin_keyboard(), parse_mode='HTML'
     )
@@ -1483,52 +1475,10 @@ async def page_margin_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     session = user_sessions[user_id]
     session["custom_page_margin"] = key
-    session["state"] = "choosing_header_style"
-    await query.edit_message_text(
-        f"✅ <b>الهوامش:</b> {PAGE_MARGINS[key]['label']}\n\n"
-        "🎯 <b>الخطوة 6 من 6 — نمط العنوان الرئيسي:</b>\n"
-        "اختر شكل العنوان 👇",
-        reply_markup=header_style_keyboard(), parse_mode='HTML'
-    )
-
-
-async def header_style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    key = query.data.replace("hs_", "")
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية.")
-        return
-    if user_sessions[user_id].get("state") != "choosing_header_style":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
-        return
-    session = user_sessions[user_id]
-    session["custom_header_style"] = key
-    session["state"] = "choosing_show_header"
-    await query.edit_message_text(
-        f"✅ <b>نمط العنوان:</b> {HEADER_STYLES[key]['label']}\n\n"
-        "📰 <b>هل تريد إظهار الترويسة والتذييل؟</b>",
-        reply_markup=show_header_keyboard(), parse_mode='HTML'
-    )
-
-
-async def show_header_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    key = query.data.replace("sh_", "")
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية.")
-        return
-    if user_sessions[user_id].get("state") != "choosing_show_header":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
-        return
-    session = user_sessions[user_id]
-    session["custom_show_header_footer"] = key
     session["state"] = "asking_comparison"
+    pos_text = f"✅ <b>الهوامش:</b> {PAGE_MARGINS[key]['label']}\n\n"
     await query.edit_message_text(
-        f"✅ <b>الترويسة:</b> {SHOW_HEADER_FOOTER[key]['label']}\n\n"
+        pos_text +
         "📊 <b>هل تريد إضافة جدول مقارنة خاص في التقرير؟</b>\n"
         "<i>مثال: مقارنة Python مع Java، أو الطاقة الشمسية مع النووية...</i>",
         reply_markup=comparison_keyboard(), parse_mode='HTML'
@@ -1645,8 +1595,6 @@ if __name__ == '__main__':
         app.add_handler(CallbackQueryHandler(colors_callback, pattern=r'^color_'))
         app.add_handler(CallbackQueryHandler(line_height_callback, pattern=r'^lh_'))
         app.add_handler(CallbackQueryHandler(page_margin_callback, pattern=r'^pm_'))
-        app.add_handler(CallbackQueryHandler(header_style_callback, pattern=r'^hs_'))
-        app.add_handler(CallbackQueryHandler(show_header_callback, pattern=r'^sh_'))
         app.add_handler(CallbackQueryHandler(comp_yes_callback, pattern=r'^comp_yes$'))
         app.add_handler(CallbackQueryHandler(comp_no_callback, pattern=r'^comp_no$'))
         app.add_error_handler(error_handler)
