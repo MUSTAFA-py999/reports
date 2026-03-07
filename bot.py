@@ -84,6 +84,28 @@ async def queue_worker(app):
                     except Exception:
                         pass
                     count_report(user_id)
+                    # تذكير بالمحاولات المتبقية
+                    remaining = get_remaining(user_id)
+                    admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
+                    if remaining != 999 and remaining > 0:
+                        await app.bot.send_message(
+                            chat_id=user_id,
+                            text=(
+                                f"⚠️ <b>تذكير:</b> متبقٍ لك <b>{remaining}</b> تقرير مجاني.\n"
+                                f"للاشتراك تواصل مع: @{admin_user}"
+                            ),
+                            parse_mode='HTML'
+                        )
+                    elif remaining != 999 and remaining == 0:
+                        await app.bot.send_message(
+                            chat_id=user_id,
+                            text=(
+                                f"🔒 <b>انتهت تجربتك المجانية!</b>\n\n"
+                                f"📩 للاشتراك تواصل مع: @{admin_user}\n"
+                                f"🆔 رقمك: <code>{user_id}</code>"
+                            ),
+                            parse_mode='HTML'
+                        )
                     logger.info(f"✅ Report sent to {user_id}")
                 else:
                     err = str(title).replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
@@ -1174,7 +1196,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register(user_id, user.username or "", user.full_name or "")
     user_sessions.pop(user_id, None)
-    name = update.effective_user.first_name
+    name = user.first_name
+    admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
+
+    # رسالة 1 — تعريف بالبوت
     await update.message.reply_text(
         f"👻 <b>أهلاً {name}! أنا Repooreto</b>\n"
         f"الشبح الذي يكتب تقاريرك الجامعية! 🎓\n\n"
@@ -1185,10 +1210,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"4️⃣ اختر العمق والتصميم:\n"
         f"   • 🎭 <b>قوالب جاهزة</b> — 6 قوالب احترافية\n"
         f"   • 🎨 <b>تخصيص كامل</b> — خط، ألوان، مقارنة خاصة ✨\n"
-        f"5️⃣ استلم تقريرك PDF! 🎉\n\n"
-        f"👻 <b>أرسل موضوع تقريرك الآن!</b>",
+        f"5️⃣ استلم تقريرك PDF! 🎉",
         parse_mode='HTML'
     )
+
+    # رسالة 2 — حالة الاشتراك
+    remaining = get_remaining(user_id)
+    u = _get_user(user_id)
+    if u and u["is_active"]:
+        until = u["expires_at"][:10] if u["expires_at"] else "—"
+        status_msg = (
+            f"✅ <b>أنت مشترك!</b>\n"
+            f"اشتراكك فعّال حتى: <b>{until}</b>\n\n"
+            f"👻 <b>أرسل موضوع تقريرك الآن!</b>"
+        )
+    elif remaining > 0:
+        status_msg = (
+            f"🆓 <b>تجربة مجانية</b>\n"
+            f"متبقٍ لك: <b>{remaining} من {FREE_LIMIT}</b> تقارير مجانية.\n\n"
+            f"💳 للاشتراك بعد انتهاء التجربة تواصل مع: @{admin_user}\n\n"
+            f"👻 <b>أرسل موضوع تقريرك الآن!</b>"
+        )
+    else:
+        status_msg = (
+            f"🔒 <b>انتهت تجربتك المجانية!</b>\n\n"
+            f"📩 للاشتراك تواصل مع: @{admin_user}\n"
+            f"🆔 رقمك: <code>{user_id}</code>"
+        )
+    await update.message.reply_text(status_msg, parse_mode='HTML')
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1260,8 +1309,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_sessions[user_id] = {"topic": text, "state": "choosing_lang"}
     safe = text.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
+
+    # تذكير بالمحاولات المتبقية
+    remaining = get_remaining(user_id)
+    admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
+    if remaining != 999:
+        trial_note = f"\n\n⚠️ <i>متبقٍ لك {remaining} تقرير مجاني. للاشتراك: @{admin_user}</i>"
+    else:
+        trial_note = ""
+
     await update.message.reply_text(
-        f"📝 <b>الموضوع:</b> <i>{safe}</i>\n\n🌐 <b>اختر لغة التقرير:</b>",
+        f"📝 <b>الموضوع:</b> <i>{safe}</i>{trial_note}\n\n🌐 <b>اختر لغة التقرير:</b>",
         reply_markup=lang_keyboard(), parse_mode='HTML'
     )
 
@@ -1589,7 +1647,7 @@ MAIN_BOT_USERNAME = os.getenv("MAIN_BOT_USERNAME", "YourMainBot")
 
 
 def _db_conn():
-    return sqlite3.connect(DB_PATH, check_same_thread=False,timeout=10)
+    return sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
 
 
 def _init_db():
@@ -1648,14 +1706,25 @@ def check_access(user_id: int) -> tuple:
     remaining = FREE_LIMIT - u["used"]
     if remaining > 0:
         return True, ""
+    admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
     return False, (
         "🔒 <b>انتهت تجربتك المجانية!</b>\n\n"
-        f"استخدمت {FREE_LIMIT} تقارير مجانية.\n\n"
+        f"استخدمت <b>{FREE_LIMIT}</b> تقارير مجانية.\n\n"
         "📩 <b>للاشتراك وفتح البوت:</b>\n"
-        f"تواصل مع المسؤول: @{MAIN_BOT_USERNAME}\n\n"
+        f"تواصل مع المسؤول مباشرة 👇\n"
+        f"@{admin_user}\n\n"
         f"🆔 رقمك: <code>{user_id}</code>\n"
-        "أرسله للأدمن ليفعّلك فوراً ✅"
+        "<i>أرسل هذا الرقم للأدمن ليفعّلك فوراً ✅</i>"
     )
+
+
+def get_remaining(user_id: int) -> int:
+    u = _get_user(user_id)
+    if not u:
+        return FREE_LIMIT
+    if u["is_active"]:
+        return 999
+    return max(0, FREE_LIMIT - u["used"])
 
 
 def count_report(user_id: int):
@@ -1864,10 +1933,11 @@ if __name__ == '__main__':
         exit(1)
 
     async def run_all():
+        global report_queue
+
         main_app = (
             ApplicationBuilder()
             .token(main_token)
-            .post_init(post_init)
             .build()
         )
         main_app.add_handler(CommandHandler('start', start))
@@ -1895,15 +1965,29 @@ if __name__ == '__main__':
         admin_app.add_handler(CommandHandler('users',      admin_users))
         admin_app.add_handler(CommandHandler('stats',      admin_stats))
 
-        async with main_app, admin_app:
-            await main_app.initialize()
-            await admin_app.initialize()
-            await main_app.start()
-            await admin_app.start()
-            await main_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-            await admin_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-            logger.info("✅ Both bots are running!")
+        # تهيئة الطابور قبل تشغيل البوتين
+        await main_app.initialize()
+        await admin_app.initialize()
+
+        report_queue = asyncio.Queue()
+        asyncio.create_task(queue_worker(main_app))
+        logger.info("✅ Queue worker started")
+
+        await main_app.start()
+        await admin_app.start()
+        await main_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        await admin_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        logger.info("✅ Both bots are running!")
+
+        try:
             await asyncio.Event().wait()
+        finally:
+            await main_app.updater.stop()
+            await admin_app.updater.stop()
+            await main_app.stop()
+            await admin_app.stop()
+            await main_app.shutdown()
+            await admin_app.shutdown()
 
     try:
         asyncio.run(run_all())
