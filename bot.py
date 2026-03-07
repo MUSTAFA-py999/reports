@@ -109,18 +109,16 @@ async def queue_worker(app):
                         )
                     logger.info(f"✅ Report sent to {user_id}")
                 else:
-                    err = str(title).replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
                     await app.bot.send_message(
                         chat_id=user_id,
-                        text=f"❌ <b>فشل إنشاء التقرير:</b>\n{err[:300]}\n\n🔄 أرسل موضوعاً جديداً.",
+                        text="👻 <b>الشبح مشغول قليلاً!</b>\n\nحاول مرة أخرى بعد عدة دقائق 🕐\n\n🔄 أرسل موضوعاً جديداً للمحاولة مجدداً.",
                         parse_mode='HTML'
                     )
             except Exception as e:
                 logger.error(f"Queue worker error for {user_id}: {e}", exc_info=True)
-                err = str(e)[:200].replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
                 await app.bot.send_message(
                     chat_id=user_id,
-                    text=f"❌ <b>خطأ غير متوقع:</b>\n<code>{err}</code>\n\n🔄 أرسل موضوعاً جديداً.",
+                    text="👻 <b>الشبح مشغول قليلاً!</b>\n\nحاول مرة أخرى بعد عدة دقائق 🕐\n\n🔄 أرسل موضوعاً جديداً للمحاولة مجدداً.",
                     parse_mode='HTML'
                 )
             finally:
@@ -1209,7 +1207,9 @@ def build_queue_text(session: dict, pos: int) -> str:
     tpl_name = "🎨 مخصص" if session.get("custom_mode") else TEMPLATES.get(session.get("template", "emerald"), {}).get("name", "")
     safe_topic = session["topic"].replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
     status = "👻 <b>الشبح بدأ يكتب تقريرك!</b>" if pos == 1 else f"⏳ <b>في الطابور — الترتيب {pos}</b> 👻"
-    return f"{status}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}"
+    tip = "\n\n💡 <i>نصيحة: جرّب خيار التخصيص الكامل لتقرير فريد من نوعه ✨</i>"
+    patience = "\n⏱ <i>قد يستغرق الإنشاء عدة دقائق، الجودة تستحق الانتظار! ☕</i>"
+    return f"{status}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}{patience}{tip}"
 
 
 # ------------------- معالجات التيليجرام -------------------
@@ -1861,6 +1861,7 @@ def is_admin(user_id: int) -> bool:
 
 async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔️")
         return
     await update.message.reply_text(
         "👋 <b>لوحة تحكم Repooreto</b>\n\n"
