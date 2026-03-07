@@ -1250,7 +1250,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remaining = get_remaining(user_id)
     u = _get_user(user_id)
     if u and u["is_active"]:
-        until = u["expires_at"][:10] if u["expires_at"] else "—"
+        until = str(u["expires_at"])[:10] if u["expires_at"] else "—"
         status_msg = (
             f"✅ <b>أنت مشترك!</b>\n"
             f"اشتراكك فعّال حتى: <b>{until}</b>\n\n"
@@ -1715,12 +1715,12 @@ async def post_init(app):
 
 
 # ═══════════════════════════════════════════════════════════════
-# نظام الاشتراكات — SQLite مدمج
+# نظام الاشتراكات — PostgreSQL (Supabase)
 # ═══════════════════════════════════════════════════════════════
-import sqlite3
+import psycopg2
+import psycopg2.extras
 from datetime import datetime, timedelta
 
-DB_PATH = "users.db"
 FREE_LIMIT = 3
 SUB_DAYS = 20
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "0").split(",") if x.strip().isdigit()]
@@ -1728,22 +1728,23 @@ MAIN_BOT_USERNAME = os.getenv("MAIN_BOT_USERNAME", "YourMainBot")
 
 
 def _db_conn():
-    return sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
+    return psycopg2.connect(os.getenv("DATABASE_URL"), cursor_factory=psycopg2.extras.RealDictCursor)
 
 
 def _init_db():
     with _db_conn() as c:
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id     INTEGER PRIMARY KEY,
-                username    TEXT DEFAULT '',
-                full_name   TEXT DEFAULT '',
-                used        INTEGER DEFAULT 0,
-                is_active   INTEGER DEFAULT 0,
-                expires_at  TEXT DEFAULT NULL,
-                joined_at   TEXT DEFAULT (datetime('now'))
-            )
-        """)
+        with c.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id    BIGINT PRIMARY KEY,
+                    username   TEXT DEFAULT '',
+                    full_name  TEXT DEFAULT '',
+                    used       INTEGER DEFAULT 0,
+                    is_active  INTEGER DEFAULT 0,
+                    expires_at TIMESTAMP DEFAULT NULL,
+                    joined_at  TIMESTAMP DEFAULT NOW()
+                )
+            """)
         c.commit()
 
 
@@ -1752,25 +1753,26 @@ _init_db()
 
 def register(user_id: int, username: str = "", full_name: str = ""):
     with _db_conn() as c:
-        c.execute(
-            "INSERT OR IGNORE INTO users (user_id, username, full_name) VALUES (?,?,?)",
-            (user_id, username, full_name)
-        )
+        with c.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (user_id, username, full_name) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                (user_id, username, full_name)
+            )
         c.commit()
 
 
 def _get_user(user_id: int):
     with _db_conn() as c:
-        row = c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-    if not row:
-        return None
-    keys = ["user_id", "username", "full_name", "used", "is_active", "expires_at", "joined_at"]
-    return dict(zip(keys, row))
+        with c.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE user_id=%s", (user_id,))
+            row = cur.fetchone()
+    return dict(row) if row else None
 
 
 def _expire_user(user_id: int):
     with _db_conn() as c:
-        c.execute("UPDATE users SET is_active=0 WHERE user_id=?", (user_id,))
+        with c.cursor() as cur:
+            cur.execute("UPDATE users SET is_active=0 WHERE user_id=%s", (user_id,))
         c.commit()
 
 
@@ -1779,7 +1781,8 @@ def check_access(user_id: int) -> tuple:
     if not u:
         return True, ""
     if u["is_active"] and u["expires_at"]:
-        if datetime.now() > datetime.strptime(u["expires_at"], "%Y-%m-%d %H:%M:%S"):
+        exp = u["expires_at"] if isinstance(u["expires_at"], datetime) else datetime.strptime(str(u["expires_at"])[:19], "%Y-%m-%d %H:%M:%S")
+        if datetime.now() > exp:
             _expire_user(user_id)
             u["is_active"] = 0
     if u["is_active"]:
@@ -1810,25 +1813,28 @@ def get_remaining(user_id: int) -> int:
 
 def count_report(user_id: int):
     with _db_conn() as c:
-        c.execute("UPDATE users SET used = used + 1 WHERE user_id=?", (user_id,))
+        with c.cursor() as cur:
+            cur.execute("UPDATE users SET used = used + 1 WHERE user_id=%s", (user_id,))
         c.commit()
 
 
 def sub_activate(user_id: int, days: int = SUB_DAYS) -> str:
     expires = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     with _db_conn() as c:
-        c.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
-        c.execute(
-            "UPDATE users SET is_active=1, expires_at=? WHERE user_id=?",
-            (expires, user_id)
-        )
+        with c.cursor() as cur:
+            cur.execute("INSERT INTO users (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
+            cur.execute(
+                "UPDATE users SET is_active=1, expires_at=%s WHERE user_id=%s",
+                (expires, user_id)
+            )
         c.commit()
     return expires
 
 
 def sub_deactivate(user_id: int):
     with _db_conn() as c:
-        c.execute("UPDATE users SET is_active=0, expires_at=NULL WHERE user_id=?", (user_id,))
+        with c.cursor() as cur:
+            cur.execute("UPDATE users SET is_active=0, expires_at=NULL WHERE user_id=%s", (user_id,))
         c.commit()
 
 
@@ -1838,11 +1844,12 @@ def sub_get_user(user_id: int):
 
 def sub_all_users() -> list:
     with _db_conn() as c:
-        rows = c.execute(
-            "SELECT user_id, username, full_name, used, is_active, expires_at FROM users ORDER BY joined_at DESC"
-        ).fetchall()
-    keys = ["user_id", "username", "full_name", "used", "is_active", "expires_at"]
-    return [dict(zip(keys, r)) for r in rows]
+        with c.cursor() as cur:
+            cur.execute(
+                "SELECT user_id, username, full_name, used, is_active, expires_at FROM users ORDER BY joined_at DESC"
+            )
+            rows = cur.fetchall()
+    return [dict(r) for r in rows]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1876,18 +1883,20 @@ async def admin_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     username = context.args[0].lstrip('@').lower()
     with _db_conn() as c:
-        rows = c.execute(
-            "SELECT user_id, username, full_name, used, is_active, expires_at FROM users WHERE lower(username)=?",
-            (username,)
-        ).fetchall()
+        with c.cursor() as cur:
+            cur.execute(
+                "SELECT user_id, username, full_name, used, is_active, expires_at FROM users WHERE lower(username)=%s",
+                (username,)
+            )
+            rows = cur.fetchall()
     if not rows:
         await update.message.reply_text(f"❌ لا يوجد مستخدم بالمعرف: @{username}")
         return
     keys = ["user_id", "username", "full_name", "used", "is_active", "expires_at"]
     for r in rows:
-        u = dict(zip(keys, r))
+        u = dict(r)
         status = "✅ مشترك" if u["is_active"] else ("🆓 تجربة" if u["used"] < FREE_LIMIT else "🔒 منتهي")
-        until_val = u["expires_at"][:10] if u["expires_at"] else "-"
+        until_val = str(u["expires_at"])[:10] if u["expires_at"] else "-"
         uid_v = u["user_id"]
         uname_v = u["username"] or "-"
         name_v = u["full_name"] or "-"
@@ -2017,7 +2026,7 @@ async def admin_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name_val = u["full_name"] or "-"
     uname_val = u["username"] or "-"
     used_val = u["used"]
-    until_val = u["expires_at"][:10] if u["expires_at"] else "-"
+    until_val = str(u["expires_at"])[:10] if u["expires_at"] else "-"
     await update.message.reply_text(
         f"👤 <b>معلومات المستخدم</b>\n\n"
         f"🆔 ID: <code>{uid_val}</code>\n"
@@ -2041,7 +2050,7 @@ async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for u in users[:30]:
         icon = "✅" if u["is_active"] else ("🆓" if u["used"] < FREE_LIMIT else "🔒")
         name = u["username"] or u["full_name"] or "—"
-        until = u["expires_at"][:10] if u["expires_at"] else "-"
+        until = str(u["expires_at"])[:10] if u["expires_at"] else "-"
         text += f"{icon} <code>{u['user_id']}</code> | {name} | 📄{u['used']} | {until}\n"
     if len(users) > 30:
         text += f"\n... و{len(users)-30} آخرين"
