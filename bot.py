@@ -44,6 +44,7 @@ report_queue: asyncio.Queue = None
 active_jobs = {}
 queue_positions = {}
 MAX_CONCURRENT = 2
+main_app_ref = None  # مرجع البوت الرئيسي لإرسال الإشعارات من بوت الأدمن
 
 
 async def queue_worker(app):
@@ -309,55 +310,55 @@ DEPTH_OPTIONS = {
 # content_h: small=267mm, medium=247mm, large=227mm
 WORDS_PER_PAGE_MATRIX = {
     # ─── xsmall (12px / 3.18mm) ────────────────────────────────
-    ("xsmall", "compact", "small"):   693,
-    ("xsmall", "compact", "medium"):  502,
-    ("xsmall", "compact", "large"):   418,
-    ("xsmall", "normal",  "small"):   578,
-    ("xsmall", "normal",  "medium"):  419,
-    ("xsmall", "normal",  "large"):   348,
-    ("xsmall", "relaxed", "small"):   473,
-    ("xsmall", "relaxed", "medium"):  342,
-    ("xsmall", "relaxed", "large"):   285,
+    ("xsmall", "compact", "small"):   620,
+    ("xsmall", "compact", "medium"):  460,
+    ("xsmall", "compact", "large"):   380,
+    ("xsmall", "normal",  "small"):   520,
+    ("xsmall", "normal",  "medium"):  385,
+    ("xsmall", "normal",  "large"):   320,
+    ("xsmall", "relaxed", "small"):   430,
+    ("xsmall", "relaxed", "medium"):  315,
+    ("xsmall", "relaxed", "large"):   260,
     # ─── small (14px / 3.70mm) ─────────────────────────────────
-    ("small",  "compact", "small"):   512,
-    ("small",  "compact", "medium"):  371,
-    ("small",  "compact", "large"):   309,
-    ("small",  "normal",  "small"):   427,
-    ("small",  "normal",  "medium"):  309,
-    ("small",  "normal",  "large"):   257,
-    ("small",  "relaxed", "small"):   349,
-    ("small",  "relaxed", "medium"):  253,
-    ("small",  "relaxed", "large"):   210,
+    ("small",  "compact", "small"):   460,
+    ("small",  "compact", "medium"):  340,
+    ("small",  "compact", "large"):   280,
+    ("small",  "normal",  "small"):   385,
+    ("small",  "normal",  "medium"):  285,
+    ("small",  "normal",  "large"):   235,
+    ("small",  "relaxed", "small"):   315,
+    ("small",  "relaxed", "medium"):  232,
+    ("small",  "relaxed", "large"):   192,
     # ─── medium (16px / 4.23mm) ────────────────────────────────
-    ("medium", "compact", "small"):   392,
-    ("medium", "compact", "medium"):  284,
-    ("medium", "compact", "large"):   236,
-    ("medium", "normal",  "small"):   326,
-    ("medium", "normal",  "medium"):  236,
-    ("medium", "normal",  "large"):   197,
-    ("medium", "relaxed", "small"):   267,
-    ("medium", "relaxed", "medium"):  193,
-    ("medium", "relaxed", "large"):   161,
+    ("medium", "compact", "small"):   355,
+    ("medium", "compact", "medium"):  260,
+    ("medium", "compact", "large"):   215,
+    ("medium", "normal",  "small"):   295,
+    ("medium", "normal",  "medium"):  218,
+    ("medium", "normal",  "large"):   180,
+    ("medium", "relaxed", "small"):   242,
+    ("medium", "relaxed", "medium"):  178,
+    ("medium", "relaxed", "large"):   147,
     # ─── large (18px / 4.76mm) ─────────────────────────────────
-    ("large",  "compact", "small"):   309,
-    ("large",  "compact", "medium"):  224,
-    ("large",  "compact", "large"):   186,
-    ("large",  "normal",  "small"):   258,
-    ("large",  "normal",  "medium"):  187,
-    ("large",  "normal",  "large"):   155,
-    ("large",  "relaxed", "small"):   211,
-    ("large",  "relaxed", "medium"):  153,
-    ("large",  "relaxed", "large"):   127,
+    ("large",  "compact", "small"):   280,
+    ("large",  "compact", "medium"):  206,
+    ("large",  "compact", "large"):   170,
+    ("large",  "normal",  "small"):   234,
+    ("large",  "normal",  "medium"):  172,
+    ("large",  "normal",  "large"):   142,
+    ("large",  "relaxed", "small"):   191,
+    ("large",  "relaxed", "medium"):  140,
+    ("large",  "relaxed", "large"):   116,
     # ─── xlarge (20px / 5.29mm) ────────────────────────────────
-    ("xlarge", "compact", "small"):   250,
-    ("xlarge", "compact", "medium"):  181,
-    ("xlarge", "compact", "large"):   151,
-    ("xlarge", "normal",  "small"):   208,
-    ("xlarge", "normal",  "medium"):  151,
-    ("xlarge", "normal",  "large"):   126,
-    ("xlarge", "relaxed", "small"):   170,
-    ("xlarge", "relaxed", "medium"):  123,
-    ("xlarge", "relaxed", "large"):   103,
+    ("xlarge", "compact", "small"):   228,
+    ("xlarge", "compact", "medium"):  167,
+    ("xlarge", "compact", "large"):   138,
+    ("xlarge", "normal",  "small"):   190,
+    ("xlarge", "normal",  "medium"):  139,
+    ("xlarge", "normal",  "large"):   115,
+    ("xlarge", "relaxed", "small"):   155,
+    ("xlarge", "relaxed", "medium"):  113,
+    ("xlarge", "relaxed", "large"):    94,
 }
 
 # القوالب الجاهزة: 16.5px ≈ medium، line-height 1.8 = normal، margin 2.5cm = medium
@@ -376,6 +377,8 @@ STATE_GUIDANCE = {
     "choosing_colors":      "🎨 من فضلك <b>اختر نظام الألوان</b> من الأزرار أعلاه.",
     "choosing_line_height": "📏 من فضلك <b>اختر تباعد الأسطر</b> من الأزرار أعلاه.",
     "choosing_page_margin": "📐 من فضلك <b>اختر هوامش الصفحة</b> من الأزرار أعلاه.",
+    "choosing_pros_cons":   "✅ من فضلك <b>اختر تضمين المزايا/العيوب</b> من الأزرار أعلاه.",
+    "choosing_tables":      "📊 من فضلك <b>اختر تضمين الجداول</b> من الأزرار أعلاه.",
     "choosing_header_style":"🎯 من فضلك <b>اختر نمط العنوان الرئيسي</b> من الأزرار أعلاه.",
     "choosing_show_header": "📰 من فضلك <b>اختر إظهار الترويسة والتذييل</b> من الأزرار أعلاه.",
     "asking_comparison":    "📊 من فضلك <b>اختر</b> من الأزرار أعلاه.",
@@ -400,18 +403,24 @@ def get_fonts_by_language(lang_key):
 
 
 def get_words_per_page(session: dict) -> int:
-    """
-    حساب عدد الكلمات المناسب للصفحة الواحدة بناءً على إعدادات التنسيق الفعلية.
-    يغطي جميع تركيبات حجم الخط × تباعد الأسطر × هوامش الصفحة (45 سيناريو).
-    """
     if session.get("custom_mode"):
         font_key   = session.get("custom_font_size_key", "medium")
         lh_key     = session.get("custom_line_height",   "normal")
         margin_key = session.get("custom_page_margin",   "medium")
-        return WORDS_PER_PAGE_MATRIX.get((font_key, lh_key, margin_key), 237)
+        base = WORDS_PER_PAGE_MATRIX.get((font_key, lh_key, margin_key), 218)
     else:
-        # القوالب الجاهزة: 16.5px + line-height 1.8 + margin 2.5cm
-        return PRESET_WORDS_PER_PAGE
+        base = PRESET_WORDS_PER_PAGE
+
+    # تعديل بناءً على الكتل البصرية — الجداول والمزايا/العيوب تستهلك مساحة أكبر من كلماتها
+    include_tables    = session.get("include_tables", True)
+    include_pros_cons = session.get("include_pros_cons", True)
+    if include_tables and include_pros_cons:
+        base = int(base * 0.82)   # خصم 18% — كتل بصرية ثقيلة
+    elif include_tables:
+        base = int(base * 0.88)   # خصم 12%
+    elif include_pros_cons:
+        base = int(base * 0.91)   # خصم 9%
+    return base
 
 
 # ------------------- دوال LLM -------------------
@@ -520,6 +529,17 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
         "\nTABLES: Max 6 rows per table. Must fit on one page. No cross-page tables.\n"
     )
 
+    # قيود الكتل بناءً على اختيار المستخدم
+    include_tables    = session.get("include_tables", True)
+    include_pros_cons = session.get("include_pros_cons", True)
+    block_restrictions = ""
+    if not include_tables:
+        block_restrictions += "• DO NOT use 'table' or 'stats' blocks — user disabled tables.\n"
+    if not include_pros_cons:
+        block_restrictions += "• DO NOT use 'pros_cons' blocks — user disabled pros/cons.\n"
+    if block_restrictions:
+        block_restrictions = f"\nBLOCK RESTRICTIONS (MANDATORY):\n{block_restrictions}"
+
     return f"""You are a skilled academic writer. Write a university report that feels GENUINELY HUMAN-WRITTEN.
 
 ══════════════════════════════════════
@@ -533,7 +553,7 @@ SECTIONS: {depth["blocks_min"]} to {depth["blocks_max"]} content blocks.
 STUDENT'S REQUIREMENTS:
 {qa_block.strip()}
 {comparison_injection}
-
+{block_restrictions}
 ══════════════════════════════════════
 BLOCK TYPES:
 - "paragraph"     → "text": {para_min}-{para_max} words. Use \\n for natural breaks.
@@ -1151,6 +1171,18 @@ def page_margin_keyboard():
         for k, v in PAGE_MARGINS.items()
     ])
 
+def pros_cons_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ نعم، أضف مزايا وعيوب", callback_data="pc_yes")],
+        [InlineKeyboardButton("❌ لا، بدون مزايا/عيوب",  callback_data="pc_no")],
+    ])
+
+def tables_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 نعم، أضف جداول",   callback_data="tbl_yes")],
+        [InlineKeyboardButton("❌ لا، بدون جداول",    callback_data="tbl_no")],
+    ])
+
 def header_style_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(v["label"], callback_data=f"hs_{k}")]
@@ -1433,10 +1465,12 @@ async def style_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         session["custom_line_height"] = "normal"
         session["custom_page_margin"] = "medium"
         session["custom_header_style"] = "colored"
+        session["include_pros_cons"] = True
+        session["include_tables"] = True
         session["state"] = "choosing_font_size"
         await query.edit_message_text(
             "🎨 <b>رحلة التخصيص بدأت! 👻</b>\n\n"
-            "📐 <b>الخطوة 1 من 5 — حجم الخط:</b>\n"
+            "📐 <b>الخطوة 1 من 7 — حجم الخط:</b>\n"
             "اختر الحجم الذي يريح عينيك 👇",
             reply_markup=font_size_keyboard(), parse_mode='HTML'
         )
@@ -1459,7 +1493,7 @@ async def font_size_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang_key = session.get("language", "ar")
     await query.edit_message_text(
         f"✅ <b>الحجم:</b> {CUSTOM_FONT_SIZES[key]['label']}\n\n"
-        "✍️ <b>الخطوة 2 من 5 — نوع الخط:</b>\n"
+        "✍️ <b>الخطوة 2 من 7 — نوع الخط:</b>\n"
         "اختر الخط المناسب 👇",
         reply_markup=font_keyboard_for_language(lang_key), parse_mode='HTML'
     )
@@ -1481,7 +1515,7 @@ async def font_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["state"] = "choosing_colors"
     await query.edit_message_text(
         f"✅ <b>الخط:</b> {CUSTOM_FONTS[key]['label']}\n\n"
-        "🎨 <b>الخطوة 3 من 5 — نظام الألوان:</b>\n"
+        "🎨 <b>الخطوة 3 من 7 — نظام الألوان:</b>\n"
         "اختر الروح البصرية لتقريرك 👇",
         reply_markup=colors_keyboard(), parse_mode='HTML'
     )
@@ -1503,7 +1537,7 @@ async def colors_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["state"] = "choosing_line_height"
     await query.edit_message_text(
         f"✅ <b>الألوان:</b> {CUSTOM_COLORS[key]['label']}\n\n"
-        "📏 <b>الخطوة 4 من 5 — تباعد الأسطر:</b>\n"
+        "📏 <b>الخطوة 4 من 7 — تباعد الأسطر:</b>\n"
         "اختر المسافة بين السطور 👇",
         reply_markup=line_height_keyboard(), parse_mode='HTML'
     )
@@ -1525,7 +1559,7 @@ async def line_height_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     session["state"] = "choosing_page_margin"
     await query.edit_message_text(
         f"✅ <b>تباعد الأسطر:</b> {LINE_HEIGHTS[key]['label']}\n\n"
-        "📐 <b>الخطوة 5 من 5 — هوامش الصفحة:</b>\n"
+        "📐 <b>الخطوة 5 من 7 — هوامش الصفحة:</b>\n"
         "اختر حجم الهوامش 👇",
         reply_markup=page_margin_keyboard(), parse_mode='HTML'
     )
@@ -1544,10 +1578,57 @@ async def page_margin_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     session = user_sessions[user_id]
     session["custom_page_margin"] = key
-    session["state"] = "asking_comparison"
-    pos_text = f"✅ <b>الهوامش:</b> {PAGE_MARGINS[key]['label']}\n\n"
+    session["state"] = "choosing_pros_cons"
     await query.edit_message_text(
-        pos_text +
+        f"✅ <b>الهوامش:</b> {PAGE_MARGINS[key]['label']}\n\n"
+        "✅❌ <b>الخطوة 6 من 7 — المزايا والعيوب:</b>\n"
+        "هل تريد تضمين أقسام المزايا والعيوب في التقرير؟\n"
+        "<i>تُضاف كجداول مقارنة جانبية</i>",
+        reply_markup=pros_cons_keyboard(), parse_mode='HTML'
+    )
+
+
+async def pros_cons_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    choice = query.data  # "pc_yes" or "pc_no"
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
+    if user_sessions[user_id].get("state") != "choosing_pros_cons":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
+    session = user_sessions[user_id]
+    session["include_pros_cons"] = (choice == "pc_yes")
+    session["state"] = "choosing_tables"
+    label = "✅ نعم" if session["include_pros_cons"] else "❌ لا"
+    await query.edit_message_text(
+        f"✅ <b>المزايا/العيوب:</b> {label}\n\n"
+        "📊 <b>الخطوة 7 من 7 — الجداول:</b>\n"
+        "هل تريد تضمين جداول في التقرير؟\n"
+        "<i>تشمل: جداول البيانات، جداول المقارنة، الإحصائيات</i>",
+        reply_markup=tables_keyboard(), parse_mode='HTML'
+    )
+
+
+async def tables_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    choice = query.data  # "tbl_yes" or "tbl_no"
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
+    if user_sessions[user_id].get("state") != "choosing_tables":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
+    session = user_sessions[user_id]
+    session["include_tables"] = (choice == "tbl_yes")
+    session["state"] = "asking_comparison"
+    label = "✅ نعم" if session["include_tables"] else "❌ لا"
+    await query.edit_message_text(
+        f"✅ <b>الجداول:</b> {label}\n\n"
         "📊 <b>هل تريد إضافة جدول مقارنة خاص في التقرير؟</b>\n"
         "<i>مثال: مقارنة Python مع Java، أو الطاقة الشمسية مع النووية...</i>",
         reply_markup=comparison_keyboard(), parse_mode='HTML'
@@ -1779,8 +1860,79 @@ async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/activate &lt;id&gt; [days] — تفعيل مستخدم\n"
         "/deactivate &lt;id&gt; — إلغاء اشتراك\n"
         "/info &lt;id&gt; — معلومات مستخدم\n"
+        "/find &lt;username&gt; — بحث بالمعرف\n"
         "/users — قائمة المستخدمين\n"
-        "/stats — إحصائيات",
+        "/stats — إحصائيات\n"
+        "/broadcast &lt;رسالة&gt; — إرسال لجميع المستخدمين",
+        parse_mode='HTML'
+    )
+
+
+async def admin_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("⚠️ الاستخدام: /find <username>\nمثال: /find ahmed123")
+        return
+    username = context.args[0].lstrip('@').lower()
+    with _db_conn() as c:
+        rows = c.execute(
+            "SELECT user_id, username, full_name, used, is_active, expires_at FROM users WHERE lower(username)=?",
+            (username,)
+        ).fetchall()
+    if not rows:
+        await update.message.reply_text(f"❌ لا يوجد مستخدم بالمعرف: @{username}")
+        return
+    keys = ["user_id", "username", "full_name", "used", "is_active", "expires_at"]
+    for r in rows:
+        u = dict(zip(keys, r))
+        status = "✅ مشترك" if u["is_active"] else ("🆓 تجربة" if u["used"] < FREE_LIMIT else "🔒 منتهي")
+        until_val = u["expires_at"][:10] if u["expires_at"] else "-"
+        uid_v = u["user_id"]
+        uname_v = u["username"] or "-"
+        name_v = u["full_name"] or "-"
+        await update.message.reply_text(
+            f"🔍 <b>نتيجة البحث</b>\n\n"
+            f"🆔 ID: <code>{uid_v}</code>\n"
+            f"📛 الاسم: {name_v}\n"
+            f"👤 يوزر: @{uname_v}\n"
+            f"📊 الحالة: {status}\n"
+            f"📄 التقارير: {u['used']}\n"
+            f"📅 ينتهي: {until_val}",
+            parse_mode='HTML'
+        )
+
+
+async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "⚠️ الاستخدام: /broadcast رسالتك هنا\n"
+            "مثال: /broadcast 🎉 تم إضافة ميزة جديدة!"
+        )
+        return
+    message_text = " ".join(context.args)
+    users = sub_all_users()
+    sent = 0
+    failed = 0
+    await update.message.reply_text(f"📤 جاري الإرسال لـ {len(users)} مستخدم...")
+    for u in users:
+        try:
+            if main_app_ref:
+                await main_app_ref.bot.send_message(
+                    chat_id=u["user_id"],
+                    text=f"📢 <b>رسالة من الإدارة:</b>\n\n{message_text}",
+                    parse_mode='HTML'
+                )
+                sent += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            failed += 1
+    await update.message.reply_text(
+        f"✅ <b>اكتمل الإرسال</b>\n\n"
+        f"📨 أُرسل إلى: <b>{sent}</b>\n"
+        f"❌ فشل: <b>{failed}</b>",
         parse_mode='HTML'
     )
 
@@ -1806,16 +1958,17 @@ async def admin_activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML'
     )
     try:
-        await context.bot.send_message(
-            chat_id=uid,
-            text=(
-                "🎉 <b>تم تفعيل اشتراكك!</b>\n\n"
-                f"✅ البوت مفتوح لمدة <b>{days} يوم</b>\n"
-                f"📅 ينتهي في: <b>{expires[:10]}</b>\n\n"
-                f"👻 ابدأ الآن @{MAIN_BOT_USERNAME}"
-            ),
-            parse_mode='HTML'
-        )
+        if main_app_ref:
+            await main_app_ref.bot.send_message(
+                chat_id=uid,
+                text=(
+                    "🎉 <b>تم تفعيل اشتراكك!</b>\n\n"
+                    f"✅ البوت مفتوح لمدة <b>{days} يوم</b>\n"
+                    f"📅 ينتهي في: <b>{expires[:10]}</b>\n\n"
+                    f"👻 ابدأ الآن بإرسال موضوع تقريرك!"
+                ),
+                parse_mode='HTML'
+            )
     except Exception:
         pass
 
@@ -1834,11 +1987,12 @@ async def admin_deactivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sub_deactivate(uid)
     await update.message.reply_text(f"❌ تم إلغاء اشتراك <code>{uid}</code>", parse_mode='HTML')
     try:
-        await context.bot.send_message(
-            chat_id=uid,
-            text="⚠️ <b>تم إيقاف اشتراكك.</b>\nتواصل مع الأدمن لتجديده.",
-            parse_mode='HTML'
-        )
+        if main_app_ref:
+            await main_app_ref.bot.send_message(
+                chat_id=uid,
+                text="⚠️ <b>تم إيقاف اشتراكك.</b>\nتواصل مع الأدمن لتجديده.",
+                parse_mode='HTML'
+            )
     except Exception:
         pass
 
@@ -1933,13 +2087,14 @@ if __name__ == '__main__':
         exit(1)
 
     async def run_all():
-        global report_queue
+        global report_queue, main_app_ref
 
         main_app = (
             ApplicationBuilder()
             .token(main_token)
             .build()
         )
+        main_app_ref = main_app  # حفظ المرجع لإرسال الإشعارات
         main_app.add_handler(CommandHandler('start', start))
         main_app.add_handler(CommandHandler('cancel', cancel))
         main_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -1953,6 +2108,8 @@ if __name__ == '__main__':
         main_app.add_handler(CallbackQueryHandler(colors_callback,      pattern=r'^color_'))
         main_app.add_handler(CallbackQueryHandler(line_height_callback, pattern=r'^lh_'))
         main_app.add_handler(CallbackQueryHandler(page_margin_callback, pattern=r'^pm_'))
+        main_app.add_handler(CallbackQueryHandler(pros_cons_callback,   pattern=r'^pc_'))
+        main_app.add_handler(CallbackQueryHandler(tables_callback,      pattern=r'^tbl_'))
         main_app.add_handler(CallbackQueryHandler(comp_yes_callback,    pattern=r'^comp_yes$'))
         main_app.add_handler(CallbackQueryHandler(comp_no_callback,     pattern=r'^comp_no$'))
         main_app.add_error_handler(error_handler)
@@ -1962,8 +2119,10 @@ if __name__ == '__main__':
         admin_app.add_handler(CommandHandler('activate',   admin_activate))
         admin_app.add_handler(CommandHandler('deactivate', admin_deactivate))
         admin_app.add_handler(CommandHandler('info',       admin_info))
+        admin_app.add_handler(CommandHandler('find',       admin_find))
         admin_app.add_handler(CommandHandler('users',      admin_users))
         admin_app.add_handler(CommandHandler('stats',      admin_stats))
+        admin_app.add_handler(CommandHandler('broadcast',  admin_broadcast))
 
         # تهيئة الطابور قبل تشغيل البوتين
         await main_app.initialize()
