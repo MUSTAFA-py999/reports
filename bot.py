@@ -83,6 +83,7 @@ async def queue_worker(app):
                         await app.bot.delete_message(chat_id=user_id, message_id=msg_id)
                     except Exception:
                         pass
+                    count_report(user_id)
                     logger.info(f"✅ Report sent to {user_id}")
                 else:
                     err = str(title).replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
@@ -1170,6 +1171,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    user = update.effective_user
+    register(user_id, user.username or "", user.full_name or "")
     user_sessions.pop(user_id, None)
     name = update.effective_user.first_name
     await update.message.reply_text(
@@ -1191,6 +1194,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
+
+    # تسجيل المستخدم والتحقق من الاشتراك
+    user = update.effective_user
+    register(user_id, user.username or "", user.full_name or "")
+    allowed, block_msg = check_access(user_id)
+    if not allowed:
+        await update.message.reply_text(block_msg, parse_mode='HTML')
+        return
 
     if user_id in user_sessions:
         session = user_sessions[user_id]
@@ -1564,47 +1575,337 @@ async def post_init(app):
     logger.info("✅ Queue worker started")
 
 
+# ═══════════════════════════════════════════════════════════════
+# نظام الاشتراكات — SQLite مدمج
+# ═══════════════════════════════════════════════════════════════
+import sqlite3
+from datetime import datetime, timedelta
+
+DB_PATH = "users.db"
+FREE_LIMIT = 3
+SUB_DAYS = 20
+ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "0").split(",") if x.strip().isdigit()]
+MAIN_BOT_USERNAME = os.getenv("MAIN_BOT_USERNAME", "YourMainBot")
+
+
+def _db_conn():
+    return sqlite3.connect(DB_PATH, check_same_thread=False,timeout=10)
+
+
+def _init_db():
+    with _db_conn() as c:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id     INTEGER PRIMARY KEY,
+                username    TEXT DEFAULT '',
+                full_name   TEXT DEFAULT '',
+                used        INTEGER DEFAULT 0,
+                is_active   INTEGER DEFAULT 0,
+                expires_at  TEXT DEFAULT NULL,
+                joined_at   TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        c.commit()
+
+
+_init_db()
+
+
+def register(user_id: int, username: str = "", full_name: str = ""):
+    with _db_conn() as c:
+        c.execute(
+            "INSERT OR IGNORE INTO users (user_id, username, full_name) VALUES (?,?,?)",
+            (user_id, username, full_name)
+        )
+        c.commit()
+
+
+def _get_user(user_id: int):
+    with _db_conn() as c:
+        row = c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+    if not row:
+        return None
+    keys = ["user_id", "username", "full_name", "used", "is_active", "expires_at", "joined_at"]
+    return dict(zip(keys, row))
+
+
+def _expire_user(user_id: int):
+    with _db_conn() as c:
+        c.execute("UPDATE users SET is_active=0 WHERE user_id=?", (user_id,))
+        c.commit()
+
+
+def check_access(user_id: int) -> tuple:
+    u = _get_user(user_id)
+    if not u:
+        return True, ""
+    if u["is_active"] and u["expires_at"]:
+        if datetime.now() > datetime.strptime(u["expires_at"], "%Y-%m-%d %H:%M:%S"):
+            _expire_user(user_id)
+            u["is_active"] = 0
+    if u["is_active"]:
+        return True, ""
+    remaining = FREE_LIMIT - u["used"]
+    if remaining > 0:
+        return True, ""
+    return False, (
+        "🔒 <b>انتهت تجربتك المجانية!</b>\n\n"
+        f"استخدمت {FREE_LIMIT} تقارير مجانية.\n\n"
+        "📩 <b>للاشتراك وفتح البوت:</b>\n"
+        f"تواصل مع المسؤول: @{MAIN_BOT_USERNAME}\n\n"
+        f"🆔 رقمك: <code>{user_id}</code>\n"
+        "أرسله للأدمن ليفعّلك فوراً ✅"
+    )
+
+
+def count_report(user_id: int):
+    with _db_conn() as c:
+        c.execute("UPDATE users SET used = used + 1 WHERE user_id=?", (user_id,))
+        c.commit()
+
+
+def sub_activate(user_id: int, days: int = SUB_DAYS) -> str:
+    expires = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    with _db_conn() as c:
+        c.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+        c.execute(
+            "UPDATE users SET is_active=1, expires_at=? WHERE user_id=?",
+            (expires, user_id)
+        )
+        c.commit()
+    return expires
+
+
+def sub_deactivate(user_id: int):
+    with _db_conn() as c:
+        c.execute("UPDATE users SET is_active=0, expires_at=NULL WHERE user_id=?", (user_id,))
+        c.commit()
+
+
+def sub_get_user(user_id: int):
+    return _get_user(user_id)
+
+
+def sub_all_users() -> list:
+    with _db_conn() as c:
+        rows = c.execute(
+            "SELECT user_id, username, full_name, used, is_active, expires_at FROM users ORDER BY joined_at DESC"
+        ).fetchall()
+    keys = ["user_id", "username", "full_name", "used", "is_active", "expires_at"]
+    return [dict(zip(keys, r)) for r in rows]
+
+
+# ═══════════════════════════════════════════════════════════════
+# معالجات بوت الأدمن
+# ═══════════════════════════════════════════════════════════════
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
+
+async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    await update.message.reply_text(
+        "👋 <b>لوحة تحكم Repooreto</b>\n\n"
+        "/activate &lt;id&gt; [days] — تفعيل مستخدم\n"
+        "/deactivate &lt;id&gt; — إلغاء اشتراك\n"
+        "/info &lt;id&gt; — معلومات مستخدم\n"
+        "/users — قائمة المستخدمين\n"
+        "/stats — إحصائيات",
+        parse_mode='HTML'
+    )
+
+
+async def admin_activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("⚠️ الاستخدام: /activate <user_id> [days]\nمثال: /activate 123456789 20")
+        return
+    try:
+        uid = int(context.args[0])
+        days = int(context.args[1]) if len(context.args) > 1 else SUB_DAYS
+    except ValueError:
+        await update.message.reply_text("❌ user_id يجب أن يكون رقماً.")
+        return
+    expires = sub_activate(uid, days)
+    await update.message.reply_text(
+        f"✅ <b>تم التفعيل!</b>\n\n"
+        f"👤 المستخدم: <code>{uid}</code>\n"
+        f"📅 صالح حتى: <b>{expires[:10]}</b>\n"
+        f"⏱ المدة: {days} يوم",
+        parse_mode='HTML'
+    )
+    try:
+        await context.bot.send_message(
+            chat_id=uid,
+            text=(
+                "🎉 <b>تم تفعيل اشتراكك!</b>\n\n"
+                f"✅ البوت مفتوح لمدة <b>{days} يوم</b>\n"
+                f"📅 ينتهي في: <b>{expires[:10]}</b>\n\n"
+                f"👻 ابدأ الآن @{MAIN_BOT_USERNAME}"
+            ),
+            parse_mode='HTML'
+        )
+    except Exception:
+        pass
+
+
+async def admin_deactivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("⚠️ الاستخدام: /deactivate <user_id>")
+        return
+    try:
+        uid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ user_id يجب أن يكون رقماً.")
+        return
+    sub_deactivate(uid)
+    await update.message.reply_text(f"❌ تم إلغاء اشتراك <code>{uid}</code>", parse_mode='HTML')
+    try:
+        await context.bot.send_message(
+            chat_id=uid,
+            text="⚠️ <b>تم إيقاف اشتراكك.</b>\nتواصل مع الأدمن لتجديده.",
+            parse_mode='HTML'
+        )
+    except Exception:
+        pass
+
+
+async def admin_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("⚠️ الاستخدام: /info <user_id>")
+        return
+    try:
+        uid = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ user_id يجب أن يكون رقماً.")
+        return
+    u = sub_get_user(uid)
+    if not u:
+        await update.message.reply_text("❌ المستخدم غير موجود.")
+        return
+    status = "✅ مشترك" if u["is_active"] else ("🆓 تجربة" if u["used"] < FREE_LIMIT else "🔒 منتهي")
+    uid_val = u["user_id"]
+    name_val = u["full_name"] or "-"
+    uname_val = u["username"] or "-"
+    used_val = u["used"]
+    until_val = u["expires_at"][:10] if u["expires_at"] else "-"
+    await update.message.reply_text(
+        f"👤 <b>معلومات المستخدم</b>\n\n"
+        f"🆔 ID: <code>{uid_val}</code>\n"
+        f"📛 الاسم: {name_val}\n"
+        f"👤 يوزر: @{uname_val}\n"
+        f"📊 الحالة: {status}\n"
+        f"📄 التقارير: {used_val}\n"
+        f"📅 ينتهي: {until_val}",
+        parse_mode='HTML'
+    )
+
+
+async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    users = sub_all_users()
+    if not users:
+        await update.message.reply_text("لا يوجد مستخدمون بعد.")
+        return
+    text = f"👥 <b>المستخدمون ({len(users)})</b>\n\n"
+    for u in users[:30]:
+        icon = "✅" if u["is_active"] else ("🆓" if u["used"] < FREE_LIMIT else "🔒")
+        name = u["username"] or u["full_name"] or "—"
+        until = u["expires_at"][:10] if u["expires_at"] else "-"
+        text += f"{icon} <code>{u['user_id']}</code> | {name} | 📄{u['used']} | {until}\n"
+    if len(users) > 30:
+        text += f"\n... و{len(users)-30} آخرين"
+    await update.message.reply_text(text, parse_mode='HTML')
+
+
+async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    users = sub_all_users()
+    total = len(users)
+    active = sum(1 for u in users if u["is_active"])
+    trial = sum(1 for u in users if not u["is_active"] and u["used"] < FREE_LIMIT)
+    blocked = sum(1 for u in users if not u["is_active"] and u["used"] >= FREE_LIMIT)
+    reports = sum(u["used"] for u in users)
+    await update.message.reply_text(
+        f"📊 <b>إحصائيات Repooreto</b>\n\n"
+        f"👥 إجمالي المستخدمين: <b>{total}</b>\n"
+        f"✅ مشتركون نشطون: <b>{active}</b>\n"
+        f"🆓 في التجربة: <b>{trial}</b>\n"
+        f"🔒 منتهية تجربتهم: <b>{blocked}</b>\n"
+        f"📄 إجمالي التقارير: <b>{reports}</b>",
+        parse_mode='HTML'
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# بدء التشغيل — البوتان معاً
+# ═══════════════════════════════════════════════════════════════
 if __name__ == '__main__':
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     logger.info("🌐 Flask started")
 
-    token = os.getenv("TELEGRAM_TOKEN")
-    if not token:
+    main_token = os.getenv("TELEGRAM_TOKEN")
+    admin_token = os.getenv("ADMIN_BOT_TOKEN")
+
+    if not main_token:
         logger.error("❌ TELEGRAM_TOKEN missing")
         exit(1)
+    if not admin_token:
+        logger.error("❌ ADMIN_BOT_TOKEN missing")
+        exit(1)
 
-    try:
-        app = (
+    async def run_all():
+        main_app = (
             ApplicationBuilder()
-            .token(token)
+            .token(main_token)
             .post_init(post_init)
             .build()
         )
-        app.add_handler(CommandHandler('start', start))
-        app.add_handler(CommandHandler('cancel', cancel))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        main_app.add_handler(CommandHandler('start', start))
+        main_app.add_handler(CommandHandler('cancel', cancel))
+        main_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        main_app.add_handler(CallbackQueryHandler(title_auto_callback,  pattern=r'^title_auto$'))
+        main_app.add_handler(CallbackQueryHandler(language_callback,    pattern=r'^lang_'))
+        main_app.add_handler(CallbackQueryHandler(depth_callback,       pattern=r'^depth_'))
+        main_app.add_handler(CallbackQueryHandler(style_mode_callback,  pattern=r'^style_'))
+        main_app.add_handler(CallbackQueryHandler(template_callback,    pattern=r'^tpl_'))
+        main_app.add_handler(CallbackQueryHandler(font_size_callback,   pattern=r'^fsize_'))
+        main_app.add_handler(CallbackQueryHandler(font_callback,        pattern=r'^cfont_'))
+        main_app.add_handler(CallbackQueryHandler(colors_callback,      pattern=r'^color_'))
+        main_app.add_handler(CallbackQueryHandler(line_height_callback, pattern=r'^lh_'))
+        main_app.add_handler(CallbackQueryHandler(page_margin_callback, pattern=r'^pm_'))
+        main_app.add_handler(CallbackQueryHandler(comp_yes_callback,    pattern=r'^comp_yes$'))
+        main_app.add_handler(CallbackQueryHandler(comp_no_callback,     pattern=r'^comp_no$'))
+        main_app.add_error_handler(error_handler)
 
-        app.add_handler(CallbackQueryHandler(title_auto_callback, pattern=r'^title_auto$'))
-        app.add_handler(CallbackQueryHandler(language_callback, pattern=r'^lang_'))
-        app.add_handler(CallbackQueryHandler(depth_callback, pattern=r'^depth_'))
-        app.add_handler(CallbackQueryHandler(style_mode_callback, pattern=r'^style_'))
-        app.add_handler(CallbackQueryHandler(template_callback, pattern=r'^tpl_'))
-        app.add_handler(CallbackQueryHandler(font_size_callback, pattern=r'^fsize_'))
-        app.add_handler(CallbackQueryHandler(font_callback, pattern=r'^cfont_'))
-        app.add_handler(CallbackQueryHandler(colors_callback, pattern=r'^color_'))
-        app.add_handler(CallbackQueryHandler(line_height_callback, pattern=r'^lh_'))
-        app.add_handler(CallbackQueryHandler(page_margin_callback, pattern=r'^pm_'))
-        app.add_handler(CallbackQueryHandler(comp_yes_callback, pattern=r'^comp_yes$'))
-        app.add_handler(CallbackQueryHandler(comp_no_callback, pattern=r'^comp_no$'))
-        app.add_error_handler(error_handler)
+        admin_app = ApplicationBuilder().token(admin_token).build()
+        admin_app.add_handler(CommandHandler('start',      admin_start))
+        admin_app.add_handler(CommandHandler('activate',   admin_activate))
+        admin_app.add_handler(CommandHandler('deactivate', admin_deactivate))
+        admin_app.add_handler(CommandHandler('info',       admin_info))
+        admin_app.add_handler(CommandHandler('users',      admin_users))
+        admin_app.add_handler(CommandHandler('stats',      admin_stats))
 
-        logger.info("👻 Repooreto Bot v5.5 Ready!")
-        print("=" * 60)
-        print("👻 Repooreto — Smart University Reports Bot v5.5")
-        print("=" * 60)
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        async with main_app, admin_app:
+            await main_app.initialize()
+            await admin_app.initialize()
+            await main_app.start()
+            await admin_app.start()
+            await main_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+            await admin_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+            logger.info("✅ Both bots are running!")
+            await asyncio.Event().wait()
 
-    except Exception as e:
-        logger.error(f"❌ Startup failed: {e}", exc_info=True)
-        exit(1)
+    try:
+        asyncio.run(run_all())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("🛑 Shutting down...")
