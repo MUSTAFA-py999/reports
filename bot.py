@@ -93,7 +93,7 @@ async def queue_worker(app):
                             chat_id=user_id,
                             text=(
                                 f"⚠️ <b>تذكير:</b> متبقٍ لك <b>{remaining}</b> تقرير مجاني.\n"
-                                f"للاشتراك تواصل مع: @{admin_user}"
+                                f"للاشتراك تواصل مع: @repoai24"
                             ),
                             parse_mode='HTML'
                         )
@@ -2162,3 +2162,4 @@ if __name__ == '__main__':
         asyncio.run(run_all())
     except (KeyboardInterrupt, SystemExit):
         logger.info("🛑 Shutting down...")
+
