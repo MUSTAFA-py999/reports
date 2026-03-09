@@ -67,19 +67,57 @@ async def queue_worker(app):
                 if pdf_bytes:
                     safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:40])
                     safe_title = title.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
-                    caption = (
-                        f"👻 <b>تقريرك جاهز يا طالبنا!</b>\n\n"
-                        f"📄 <b>{safe_title}</b>\n"
-                        f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
-                        f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
-                    )
-                    await app.bot.send_document(
-                        chat_id=user_id,
-                        document=BytesIO(pdf_bytes),
-                        filename=f"{safe_name}.pdf",
-                        caption=caption,
-                        parse_mode='HTML'
-                    )
+                    output_format = session.get("output_format", "pdf")
+
+                    if output_format == "word":
+                        # تحويل PDF إلى Word للحصول على نفس التنسيق
+                        try:
+                            loop = asyncio.get_event_loop()
+                            docx_bytes = await loop.run_in_executor(None, pdf_to_docx_bytes, pdf_bytes)
+                            caption = (
+                                f"👻 <b>تقريرك جاهز يا طالبنا!</b>\n\n"
+                                f"📝 <b>{safe_title}</b>\n"
+                                f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
+                                f"✏️ الملف قابل للتعديل في Word!\n"
+                                f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
+                            )
+                            await app.bot.send_document(
+                                chat_id=user_id,
+                                document=BytesIO(docx_bytes),
+                                filename=f"{safe_name}.docx",
+                                caption=caption,
+                                parse_mode='HTML'
+                            )
+                        except Exception as e:
+                            logger.error(f"Word conversion failed: {e}", exc_info=True)
+                            # fallback إلى PDF إذا فشل التحويل
+                            caption = (
+                                f"👻 <b>تقريرك جاهز!</b> (PDF — تعذّر تحويل Word)\n\n"
+                                f"📄 <b>{safe_title}</b>\n"
+                                f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
+                                f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
+                            )
+                            await app.bot.send_document(
+                                chat_id=user_id,
+                                document=BytesIO(pdf_bytes),
+                                filename=f"{safe_name}.pdf",
+                                caption=caption,
+                                parse_mode='HTML'
+                            )
+                    else:
+                        caption = (
+                            f"👻 <b>تقريرك جاهز يا طالبنا!</b>\n\n"
+                            f"📄 <b>{safe_title}</b>\n"
+                            f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
+                            f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
+                        )
+                        await app.bot.send_document(
+                            chat_id=user_id,
+                            document=BytesIO(pdf_bytes),
+                            filename=f"{safe_name}.pdf",
+                            caption=caption,
+                            parse_mode='HTML'
+                        )
                     try:
                         await app.bot.delete_message(chat_id=user_id, message_id=msg_id)
                     except Exception:
@@ -93,7 +131,7 @@ async def queue_worker(app):
                             chat_id=user_id,
                             text=(
                                 f"⚠️ <b>تذكير:</b> متبقٍ لك <b>{remaining}</b> تقرير مجاني.\n"
-                                f"للاشتراك تواصل مع: @repoai24"
+                                f"للاشتراك تواصل مع: @{admin_user}"
                             ),
                             parse_mode='HTML'
                         )
@@ -381,6 +419,7 @@ STATE_GUIDANCE = {
     "choosing_show_header": "📰 من فضلك <b>اختر إظهار الترويسة والتذييل</b> من الأزرار أعلاه.",
     "asking_comparison":    "📊 من فضلك <b>اختر</b> من الأزرار أعلاه.",
     "entering_comparison":  "✏️ اكتب الشيئين اللذين تريد مقارنتهما.\nمثال: <code>Python مقابل Java</code>",
+    "choosing_format":      "📄 من فضلك <b>اختر صيغة الملف</b> من الأزرار أعلاه.",
     "in_queue":             "👻 تقريرك في الطابور... أرسل /cancel لإلغاء.",
 }
 
@@ -1199,6 +1238,12 @@ def comparison_keyboard():
         [InlineKeyboardButton("❌ لا شكراً",               callback_data="comp_no")],
     ])
 
+def format_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📄 PDF — جاهز للتسليم",       callback_data="fmt_pdf")],
+        [InlineKeyboardButton("📝 Word — قابل للتعديل",      callback_data="fmt_word")],
+    ])
+
 
 # ------------------- دالة مساعدة لنص الطابور -------------------
 def build_queue_text(session: dict, pos: int) -> str:
@@ -1321,11 +1366,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if state == "entering_comparison":
             session["comparison_query"] = text
-            session["state"] = "in_queue"
-            pos = report_queue.qsize() + 1
-            queue_positions[user_id] = pos
-            status = await update.message.reply_text(build_queue_text(session, pos), parse_mode='HTML')
-            await report_queue.put((user_id, session.copy(), status.message_id))
+            session["state"] = "choosing_format"
+            await update.message.reply_text(
+                "✅ <b>تم! جدول المقارنة سيُضاف.</b>\n\n"
+                "📄 <b>اختر صيغة الملف:</b>",
+                reply_markup=format_keyboard(), parse_mode='HTML'
+            )
             return
 
         guidance = STATE_GUIDANCE.get(state, "⏳ جاري المعالجة... أرسل /cancel للبدء من جديد.")
@@ -1669,11 +1715,11 @@ async def comp_no_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     session = user_sessions[user_id]
     session.pop("comparison_query", None)
-    session["state"] = "in_queue"
-    pos = report_queue.qsize() + 1
-    queue_positions[user_id] = pos
-    await query.edit_message_text(build_queue_text(session, pos), parse_mode='HTML')
-    await report_queue.put((user_id, session.copy(), query.message.message_id))
+    session["state"] = "choosing_format"
+    await query.edit_message_text(
+        "📄 <b>اختر صيغة الملف:</b>",
+        reply_markup=format_keyboard(), parse_mode='HTML'
+    )
 
 
 async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1690,10 +1736,60 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[user_id]
     session["template"] = tpl
     session["custom_mode"] = False
+    session["state"] = "choosing_format"
+    await query.edit_message_text(
+        "📄 <b>اختر صيغة الملف:</b>",
+        reply_markup=format_keyboard(), parse_mode='HTML'
+    )
+
+
+def pdf_to_docx_bytes(pdf_bytes: bytes) -> bytes:
+    """تحويل PDF إلى DOCX عبر pdf2docx للحصول على نفس التنسيق تماماً"""
+    import tempfile
+    pdf_path = None
+    docx_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
+            f.write(pdf_bytes)
+            pdf_path = f.name
+        docx_path = pdf_path.replace('.pdf', '.docx')
+        from pdf2docx import Converter
+        cv = Converter(pdf_path)
+        cv.convert(docx_path, start=0, end=None)
+        cv.close()
+        with open(docx_path, 'rb') as f:
+            return f.read()
+    finally:
+        try:
+            if pdf_path and os.path.exists(pdf_path):
+                os.unlink(pdf_path)
+            if docx_path and os.path.exists(docx_path):
+                os.unlink(docx_path)
+        except Exception:
+            pass
+
+
+async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    fmt = query.data.replace("fmt_", "")  # "pdf" or "word"
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
+    if user_sessions[user_id].get("state") != "choosing_format":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
+    session = user_sessions[user_id]
+    session["output_format"] = fmt
     session["state"] = "in_queue"
     pos = report_queue.qsize() + 1
     queue_positions[user_id] = pos
-    await query.edit_message_text(build_queue_text(session, pos), parse_mode='HTML')
+    fmt_label = "📄 PDF" if fmt == "pdf" else "📝 Word"
+    await query.edit_message_text(
+        build_queue_text(session, pos) + f"\n📎 الصيغة: <b>{fmt_label}</b>",
+        parse_mode='HTML'
+    )
     await report_queue.put((user_id, session.copy(), query.message.message_id))
 
 
@@ -2122,6 +2218,7 @@ if __name__ == '__main__':
         main_app.add_handler(CallbackQueryHandler(tables_callback,      pattern=r'^tbl_'))
         main_app.add_handler(CallbackQueryHandler(comp_yes_callback,    pattern=r'^comp_yes$'))
         main_app.add_handler(CallbackQueryHandler(comp_no_callback,     pattern=r'^comp_no$'))
+        main_app.add_handler(CallbackQueryHandler(format_callback,      pattern=r'^fmt_'))
         main_app.add_error_handler(error_handler)
 
         admin_app = ApplicationBuilder().token(admin_token).build()
@@ -2162,4 +2259,3 @@ if __name__ == '__main__':
         asyncio.run(run_all())
     except (KeyboardInterrupt, SystemExit):
         logger.info("🛑 Shutting down...")
-
