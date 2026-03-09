@@ -5,3 +5,4 @@ pydantic
 flask
 weasyprint
 psycopg2-binary
+pdf2docx
