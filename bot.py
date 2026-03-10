@@ -1,8 +1,10 @@
 import os
+import re
 import asyncio
 import threading
 import logging
 import html as html_lib
+import requests
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -23,6 +25,57 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# ------------------- تحميل الخطوط -------------------
+FONTS_DIR = "/tmp/repooreto_fonts"
+
+# الخطوط: الاسم الحقيقي → اسم Family في Google Fonts
+_FONTS_TO_DOWNLOAD = {
+    "Cairo":             "Cairo",
+    "Tajawal":           "Tajawal",
+    "Amiri":             "Amiri",
+    "Noto Naskh Arabic": "Noto+Naskh+Arabic",
+    "Lateef":            "Lateef",
+    "Roboto":            "Roboto",
+    "Merriweather":      "Merriweather",
+    "Lato":              "Lato",
+    "Playfair Display":  "Playfair+Display",
+    "Source Sans Pro":   "Source+Sans+3",
+}
+
+def _download_fonts():
+    os.makedirs(FONTS_DIR, exist_ok=True)
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; Repooreto/1.0)"}
+    ok = 0
+    for name, query in _FONTS_TO_DOWNLOAD.items():
+        path = os.path.join(FONTS_DIR, f"{name.replace(' ','_')}.ttf")
+        if os.path.exists(path):
+            ok += 1
+            continue
+        try:
+            css = requests.get(
+                f"https://fonts.googleapis.com/css2?family={query}&display=swap",
+                headers=headers, timeout=10
+            ).text
+            urls = re.findall(r'url\((https://fonts\.gstatic[^)]+)\)', css)
+            if urls:
+                data = requests.get(urls[0], timeout=15).content
+                open(path, 'wb').write(data)
+                ok += 1
+                logger.info(f"✅ Font: {name}")
+        except Exception as e:
+            logger.warning(f"⚠️ Font fail ({name}): {e}")
+    logger.info(f"🔤 Fonts: {ok}/{len(_FONTS_TO_DOWNLOAD)}")
+
+_download_fonts()
+
+def _font_face_css() -> str:
+    css = ""
+    for name in _FONTS_TO_DOWNLOAD:
+        path = os.path.join(FONTS_DIR, f"{name.replace(' ','_')}.ttf")
+        if os.path.exists(path):
+            css += f"@font-face{{font-family:'{name}';src:url('file://{path}');}}\n"
+    return css
 
 flask_app = Flask(__name__)
 
@@ -67,57 +120,19 @@ async def queue_worker(app):
                 if pdf_bytes:
                     safe_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title[:40])
                     safe_title = title.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
-                    output_format = session.get("output_format", "pdf")
-
-                    if output_format == "word":
-                        # تحويل PDF إلى Word للحصول على نفس التنسيق
-                        try:
-                            loop = asyncio.get_event_loop()
-                            docx_bytes = await loop.run_in_executor(None, pdf_to_docx_bytes, pdf_bytes)
-                            caption = (
-                                f"👻 <b>تقريرك جاهز يا طالبنا!</b>\n\n"
-                                f"📝 <b>{safe_title}</b>\n"
-                                f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
-                                f"✏️ الملف قابل للتعديل في Word!\n"
-                                f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
-                            )
-                            await app.bot.send_document(
-                                chat_id=user_id,
-                                document=BytesIO(docx_bytes),
-                                filename=f"{safe_name}.docx",
-                                caption=caption,
-                                parse_mode='HTML'
-                            )
-                        except Exception as e:
-                            logger.error(f"Word conversion failed: {e}", exc_info=True)
-                            # fallback إلى PDF إذا فشل التحويل
-                            caption = (
-                                f"👻 <b>تقريرك جاهز!</b> (PDF — تعذّر تحويل Word)\n\n"
-                                f"📄 <b>{safe_title}</b>\n"
-                                f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
-                                f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
-                            )
-                            await app.bot.send_document(
-                                chat_id=user_id,
-                                document=BytesIO(pdf_bytes),
-                                filename=f"{safe_name}.pdf",
-                                caption=caption,
-                                parse_mode='HTML'
-                            )
-                    else:
-                        caption = (
-                            f"👻 <b>تقريرك جاهز يا طالبنا!</b>\n\n"
-                            f"📄 <b>{safe_title}</b>\n"
-                            f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
-                            f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
-                        )
-                        await app.bot.send_document(
-                            chat_id=user_id,
-                            document=BytesIO(pdf_bytes),
-                            filename=f"{safe_name}.pdf",
-                            caption=caption,
-                            parse_mode='HTML'
-                        )
+                    caption = (
+                        f"👻 <b>تقريرك جاهز يا طالبنا!</b>\n\n"
+                        f"📄 <b>{safe_title}</b>\n"
+                        f"🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}\n\n"
+                        f"🔄 أرسل موضوعاً جديداً لتقرير آخر!"
+                    )
+                    await app.bot.send_document(
+                        chat_id=user_id,
+                        document=BytesIO(pdf_bytes),
+                        filename=f"{safe_name}.pdf",
+                        caption=caption,
+                        parse_mode='HTML'
+                    )
                     try:
                         await app.bot.delete_message(chat_id=user_id, message_id=msg_id)
                     except Exception:
@@ -214,7 +229,7 @@ LANGUAGES = {
         "dir": "rtl",
         "align": "right",
         "lang_attr": "ar",
-        "font": "'Traditional Arabic', 'Arial', sans-serif",
+        "font": "'Cairo', 'Arial', sans-serif",
         "intro_label": "المقدمة",
         "conclusion_label": "الخاتمة",
         "pros_label": "✅ المزايا",
@@ -286,20 +301,20 @@ CUSTOM_FONT_SIZES = {
 
 # خطوط عربية
 ARABIC_FONTS = {
-    "traditional": {"label": "📜 تقليدي",        "value": "'Traditional Arabic', serif"},
-    "amiri":       {"label": "🕌 أميري",          "value": "'Amiri', serif"},
-    "cairo":       {"label": "🏙 كايرو",          "value": "'Cairo', sans-serif"},
-    "tajawal":     {"label": "✍️ تجوّل",         "value": "'Tajawal', sans-serif"},
+    "cairo":       {"label": "🏙 Cairo",              "value": "'Cairo', sans-serif"},
+    "tajawal":     {"label": "✍️ Tajawal",            "value": "'Tajawal', sans-serif"},
+    "amiri":       {"label": "🕌 Amiri",              "value": "'Amiri', serif"},
+    "noto_naskh":  {"label": "📜 Noto Naskh",         "value": "'Noto Naskh Arabic', serif"},
+    "lateef":      {"label": "🖋 Lateef",             "value": "'Lateef', serif"},
 }
 
 # خطوط إنجليزية
 ENGLISH_FONTS = {
-    "arial":       {"label": "🔤 Arial",          "value": "Arial, sans-serif"},
-    "georgia":     {"label": "📰 Georgia",        "value": "Georgia, serif"},
-    "times":       {"label": "📋 Times New Roman","value": "'Times New Roman', serif"},
-    "verdana":     {"label": "👁 Verdana",        "value": "Verdana, sans-serif"},
-    "roboto":      {"label": "🤖 Roboto",         "value": "'Roboto', sans-serif"},
-    "open-sans":   {"label": "✉️ Open Sans",      "value": "'Open Sans', sans-serif"},
+    "roboto":       {"label": "🤖 Roboto",            "value": "'Roboto', sans-serif"},
+    "merriweather": {"label": "📰 Merriweather",      "value": "'Merriweather', serif"},
+    "lato":         {"label": "✉️ Lato",              "value": "'Lato', sans-serif"},
+    "playfair":     {"label": "👑 Playfair Display",  "value": "'Playfair Display', serif"},
+    "source_sans":  {"label": "💼 Source Sans Pro",   "value": "'Source Sans Pro', sans-serif"},
 }
 
 # دمج الكل (سيتم تصفيته حسب اللغة لاحقاً)
@@ -419,7 +434,6 @@ STATE_GUIDANCE = {
     "choosing_show_header": "📰 من فضلك <b>اختر إظهار الترويسة والتذييل</b> من الأزرار أعلاه.",
     "asking_comparison":    "📊 من فضلك <b>اختر</b> من الأزرار أعلاه.",
     "entering_comparison":  "✏️ اكتب الشيئين اللذين تريد مقارنتهما.\nمثال: <code>Python مقابل Java</code>",
-    "choosing_format":      "📄 من فضلك <b>اختر صيغة الملف</b> من الأزرار أعلاه.",
     "in_queue":             "👻 تقريرك في الطابور... أرسل /cancel لإلغاء.",
 }
 
@@ -577,46 +591,23 @@ def build_report_prompt(session: dict, format_instructions: str) -> str:
     if block_restrictions:
         block_restrictions = f"\nBLOCK RESTRICTIONS (MANDATORY):\n{block_restrictions}"
 
-    return f"""You are a skilled academic writer. Write a university report that feels GENUINELY HUMAN-WRITTEN.
+    return f"""Academic report writer. Output valid JSON only.
 
-══════════════════════════════════════
 TOPIC: {topic}
-LANGUAGE: {lang["instruction"]}
+LANG: {lang["instruction"]}
 {title_instruction}
-{length_instruction}
-SECTIONS: {depth["blocks_min"]} to {depth["blocks_max"]} content blocks.
-══════════════════════════════════════
+BLOCKS: {depth["blocks_min"]}-{depth["blocks_max"]}
+LENGTH: {min_words}-{max_words} words total ({target_pages} A4 pages, ~{words_per_page}/page)
+INTRO: 1 sentence. CONCLUSION: 1 sentence.
+PARAGRAPH: {para_min}-{para_max} words each.
 
-STUDENT'S REQUIREMENTS:
+STUDENT:
 {qa_block.strip()}
 {comparison_injection}
 {block_restrictions}
-══════════════════════════════════════
-BLOCK TYPES:
-- "paragraph"     → "text": {para_min}-{para_max} words. Use \\n for natural breaks.
-- "bullets"       → "items": 5-7. 40% with " — " sub-note, 60% standalone.
-- "numbered_list" → "items": 5-7. Same rule.
-- "table"         → "headers" + "rows" (max 6 rows). Max 2 per report.
-- "pros_cons"     → "pros": 4-5, "cons": 4-5. Style A/B/C/D.
-- "comparison"    → side_a, side_b, criteria 4-6 (max 6 rows). Max 2 per report.
-- "stats"         → "items": 5-6. "Label: value — context". Max 6 items.
-- "examples"      → "items": 5-6.
-- "quote"         → "text": 2-3 sharp sentences.
-
-{table_instruction}
-{human_style_instruction}
-
-PAGE FILLING:
-• After a short block, the next block MUST be a paragraph of {para_min}-{para_max} words.
-• Never place two consecutive short blocks.
-• 45% paragraphs | 35% lists | 20% tables (max 2 total).
-
-SPECIFIC NOTES:
-• No openers like "In this report" or "يتناول هذا التقرير". Start directly.
-• Paragraphs: strong claim → develop → twist or insight.
-• Introduction: 2 sentences MAX. EXTREMELY SHORT.
-• Conclusion: 1 sentence MAX. Just a final thought.
-• ALL text in the specified language. Conclusion is MANDATORY.
+TYPES: paragraph(text)|bullets(items 5-7)|numbered_list(items 5-7)|table(headers+rows≤6,max2)|pros_cons(pros4-5,cons4-5)|comparison(side_a,side_b,criteria4-6,max2)|stats(items5-6)|examples(items5-6)|quote(text2-3sent)
+MIX: 45% paragraph, 35% list, 20% table. No 2 short blocks consecutive.
+STYLE: Natural academic. Vary sentence length. No "In this report" opener. Direct start.
 
 {format_instructions}"""
 
@@ -967,11 +958,11 @@ def render_html(report: DynamicReport, session: dict) -> str:
         colors = CUSTOM_COLORS[session.get("custom_color_key", "royal_blue")]
         p, a, bg, bg2 = colors["primary"], colors["accent"], colors["bg"], colors["bg2"]
         font_size = CUSTOM_FONT_SIZES[session.get("custom_font_size_key", "medium")]["size"]
-        font_key = session.get("custom_font_key", "traditional")
+        font_key = session.get("custom_font_key", "cairo")
         if language_key == "ar":
-            font = ARABIC_FONTS.get(font_key, ARABIC_FONTS["traditional"])["value"]
+            font = ARABIC_FONTS.get(font_key, ARABIC_FONTS["cairo"])["value"]
         else:
-            font = ENGLISH_FONTS.get(font_key, ENGLISH_FONTS["arial"])["value"]
+            font = ENGLISH_FONTS.get(font_key, ENGLISH_FONTS["roboto"])["value"]
         line_height = LINE_HEIGHTS[session.get("custom_line_height", "normal")]["value"]
         page_margin = PAGE_MARGINS[session.get("custom_page_margin", "medium")]["value"]
         header_style_key = session.get("custom_header_style", "colored")
@@ -1080,6 +1071,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
 <head>
 <meta charset="UTF-8">
 <style>
+{_font_face_css()}
   @page {{
     size: A4;
     margin: {final_margin};
@@ -1238,12 +1230,6 @@ def comparison_keyboard():
         [InlineKeyboardButton("❌ لا شكراً",               callback_data="comp_no")],
     ])
 
-def format_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 PDF — جاهز للتسليم",       callback_data="fmt_pdf")],
-        [InlineKeyboardButton("📝 Word — قابل للتعديل",      callback_data="fmt_word")],
-    ])
-
 
 # ------------------- دالة مساعدة لنص الطابور -------------------
 def build_queue_text(session: dict, pos: int) -> str:
@@ -1366,12 +1352,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if state == "entering_comparison":
             session["comparison_query"] = text
-            session["state"] = "choosing_format"
-            await update.message.reply_text(
-                "✅ <b>تم! جدول المقارنة سيُضاف.</b>\n\n"
-                "📄 <b>اختر صيغة الملف:</b>",
-                reply_markup=format_keyboard(), parse_mode='HTML'
-            )
+            session["state"] = "in_queue"
+            pos = report_queue.qsize() + 1
+            queue_positions[user_id] = pos
+            status = await update.message.reply_text(build_queue_text(session, pos), parse_mode='HTML')
+            await report_queue.put((user_id, session.copy(), status.message_id))
             return
 
         guidance = STATE_GUIDANCE.get(state, "⏳ جاري المعالجة... أرسل /cancel للبدء من جديد.")
@@ -1506,7 +1491,7 @@ async def style_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         session["custom_mode"] = True
         session["custom_font_size_key"] = "medium"
-        session["custom_font_key"] = "traditional" if session.get("language", "ar") == "ar" else "arial"
+        session["custom_font_key"] = "cairo" if session.get("language", "ar") == "ar" else "roboto"
         session["custom_color_key"] = "royal_blue"
         session["custom_line_height"] = "normal"
         session["custom_page_margin"] = "medium"
@@ -1715,11 +1700,11 @@ async def comp_no_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     session = user_sessions[user_id]
     session.pop("comparison_query", None)
-    session["state"] = "choosing_format"
-    await query.edit_message_text(
-        "📄 <b>اختر صيغة الملف:</b>",
-        reply_markup=format_keyboard(), parse_mode='HTML'
-    )
+    session["state"] = "in_queue"
+    pos = report_queue.qsize() + 1
+    queue_positions[user_id] = pos
+    await query.edit_message_text(build_queue_text(session, pos), parse_mode='HTML')
+    await report_queue.put((user_id, session.copy(), query.message.message_id))
 
 
 async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1736,60 +1721,10 @@ async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[user_id]
     session["template"] = tpl
     session["custom_mode"] = False
-    session["state"] = "choosing_format"
-    await query.edit_message_text(
-        "📄 <b>اختر صيغة الملف:</b>",
-        reply_markup=format_keyboard(), parse_mode='HTML'
-    )
-
-
-def pdf_to_docx_bytes(pdf_bytes: bytes) -> bytes:
-    """تحويل PDF إلى DOCX عبر pdf2docx للحصول على نفس التنسيق تماماً"""
-    import tempfile
-    pdf_path = None
-    docx_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
-            f.write(pdf_bytes)
-            pdf_path = f.name
-        docx_path = pdf_path.replace('.pdf', '.docx')
-        from pdf2docx import Converter
-        cv = Converter(pdf_path)
-        cv.convert(docx_path, start=0, end=None)
-        cv.close()
-        with open(docx_path, 'rb') as f:
-            return f.read()
-    finally:
-        try:
-            if pdf_path and os.path.exists(pdf_path):
-                os.unlink(pdf_path)
-            if docx_path and os.path.exists(docx_path):
-                os.unlink(docx_path)
-        except Exception:
-            pass
-
-
-async def format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    fmt = query.data.replace("fmt_", "")  # "pdf" or "word"
-    if user_id not in user_sessions:
-        await query.edit_message_text("❌ الجلسة منتهية.")
-        return
-    if user_sessions[user_id].get("state") != "choosing_format":
-        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
-        return
-    session = user_sessions[user_id]
-    session["output_format"] = fmt
     session["state"] = "in_queue"
     pos = report_queue.qsize() + 1
     queue_positions[user_id] = pos
-    fmt_label = "📄 PDF" if fmt == "pdf" else "📝 Word"
-    await query.edit_message_text(
-        build_queue_text(session, pos) + f"\n📎 الصيغة: <b>{fmt_label}</b>",
-        parse_mode='HTML'
-    )
+    await query.edit_message_text(build_queue_text(session, pos), parse_mode='HTML')
     await report_queue.put((user_id, session.copy(), query.message.message_id))
 
 
@@ -1951,227 +1886,235 @@ def sub_all_users() -> list:
 # ═══════════════════════════════════════════════════════════════
 # معالجات بوت الأدمن
 # ═══════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# معالجات بوت الأدمن — نظام InlineKeyboard
+# ═══════════════════════════════════════════════════════════════
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
+admin_sessions = {}  # {user_id: state}
+
+def _admin_kb():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ تفعيل مستخدم",     callback_data="adm_activate")],
+        [InlineKeyboardButton("❌ إلغاء اشتراك",      callback_data="adm_deactivate")],
+        [InlineKeyboardButton("🔍 معلومات مستخدم",   callback_data="adm_info")],
+        [InlineKeyboardButton("🔎 بحث بالمعرف",      callback_data="adm_find")],
+        [InlineKeyboardButton("👥 قائمة المستخدمين", callback_data="adm_users")],
+        [InlineKeyboardButton("📊 إحصائيات",         callback_data="adm_stats")],
+        [InlineKeyboardButton("📢 إرسال للجميع",     callback_data="adm_broadcast")],
+    ])
+
+_BACK_KB = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="adm_back")]])
 
 async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("⛔️")
         return
+    admin_sessions.pop(update.effective_user.id, None)
     await update.message.reply_text(
-        "👋 <b>لوحة تحكم Repooreto</b>\n\n"
-        "/activate &lt;id&gt; [days] — تفعيل مستخدم\n"
-        "/deactivate &lt;id&gt; — إلغاء اشتراك\n"
-        "/info &lt;id&gt; — معلومات مستخدم\n"
-        "/find &lt;username&gt; — بحث بالمعرف\n"
-        "/users — قائمة المستخدمين\n"
-        "/stats — إحصائيات\n"
-        "/broadcast &lt;رسالة&gt; — إرسال لجميع المستخدمين",
-        parse_mode='HTML'
+        "👋 <b>لوحة تحكم Repooreto</b>\n\nاختر عملية:",
+        reply_markup=_admin_kb(), parse_mode='HTML'
     )
 
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if not is_admin(uid):
+        return
+    d = query.data
 
-async def admin_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    if not context.args:
-        await update.message.reply_text("⚠️ الاستخدام: /find <username>\nمثال: /find ahmed123")
-        return
-    username = context.args[0].lstrip('@').lower()
-    with _db_conn() as c:
-        with c.cursor() as cur:
-            cur.execute(
-                "SELECT user_id, username, full_name, used, is_active, expires_at FROM users WHERE lower(username)=%s",
-                (username,)
-            )
-            rows = cur.fetchall()
-    if not rows:
-        await update.message.reply_text(f"❌ لا يوجد مستخدم بالمعرف: @{username}")
-        return
-    keys = ["user_id", "username", "full_name", "used", "is_active", "expires_at"]
-    for r in rows:
-        u = dict(r)
-        status = "✅ مشترك" if u["is_active"] else ("🆓 تجربة" if u["used"] < FREE_LIMIT else "🔒 منتهي")
-        until_val = str(u["expires_at"])[:10] if u["expires_at"] else "-"
-        uid_v = u["user_id"]
-        uname_v = u["username"] or "-"
-        name_v = u["full_name"] or "-"
-        await update.message.reply_text(
-            f"🔍 <b>نتيجة البحث</b>\n\n"
-            f"🆔 ID: <code>{uid_v}</code>\n"
-            f"📛 الاسم: {name_v}\n"
-            f"👤 يوزر: @{uname_v}\n"
-            f"📊 الحالة: {status}\n"
-            f"📄 التقارير: {u['used']}\n"
-            f"📅 ينتهي: {until_val}",
-            parse_mode='HTML'
-        )
-
-
-async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    if not context.args:
-        await update.message.reply_text(
-            "⚠️ الاستخدام: /broadcast رسالتك هنا\n"
-            "مثال: /broadcast 🎉 تم إضافة ميزة جديدة!"
+    if d == "adm_back":
+        admin_sessions.pop(uid, None)
+        await query.edit_message_text(
+            "👋 <b>لوحة تحكم Repooreto</b>\n\nاختر عملية:",
+            reply_markup=_admin_kb(), parse_mode='HTML'
         )
         return
-    message_text = " ".join(context.args)
-    users = sub_all_users()
-    sent = 0
-    failed = 0
-    await update.message.reply_text(f"📤 جاري الإرسال لـ {len(users)} مستخدم...")
-    for u in users:
+
+    if d == "adm_stats":
+        users = sub_all_users()
+        total   = len(users)
+        active  = sum(1 for u in users if u["is_active"])
+        trial   = sum(1 for u in users if not u["is_active"] and u["used"] < FREE_LIMIT)
+        blocked = sum(1 for u in users if not u["is_active"] and u["used"] >= FREE_LIMIT)
+        reports = sum(u["used"] for u in users)
+        await query.edit_message_text(
+            f"📊 <b>إحصائيات Repooreto</b>\n\n"
+            f"👥 إجمالي: <b>{total}</b>\n"
+            f"✅ مشتركون: <b>{active}</b>\n"
+            f"🆓 في التجربة: <b>{trial}</b>\n"
+            f"🔒 منتهية: <b>{blocked}</b>\n"
+            f"📄 إجمالي التقارير: <b>{reports}</b>",
+            reply_markup=_BACK_KB, parse_mode='HTML'
+        )
+        return
+
+    if d == "adm_users":
+        users = sub_all_users()
+        if not users:
+            await query.edit_message_text("لا يوجد مستخدمون بعد.", reply_markup=_BACK_KB)
+            return
+        text = f"👥 <b>المستخدمون ({len(users)})</b>\n\n"
+        for u in users[:25]:
+            icon  = "✅" if u["is_active"] else ("🆓" if u["used"] < FREE_LIMIT else "🔒")
+            name  = u["username"] or u["full_name"] or "—"
+            until = str(u["expires_at"])[:10] if u["expires_at"] else "-"
+            text += f"{icon} <code>{u['user_id']}</code> | {name} | 📄{u['used']} | {until}\n"
+        if len(users) > 25:
+            text += f"\n... و{len(users)-25} آخرين"
+        await query.edit_message_text(text, reply_markup=_BACK_KB, parse_mode='HTML')
+        return
+
+    # خيارات تحتاج إدخال نص
+    _prompts = {
+        "adm_activate":   ("✅ <b>تفعيل مستخدم</b>\n\nأرسل: <code>user_id [days]</code>\nمثال: <code>123456789 20</code>", "activate"),
+        "adm_deactivate": ("❌ <b>إلغاء اشتراك</b>\n\nأرسل: <code>user_id</code>", "deactivate"),
+        "adm_info":       ("🔍 <b>معلومات مستخدم</b>\n\nأرسل: <code>user_id</code>", "info"),
+        "adm_find":       ("🔎 <b>بحث بالمعرف</b>\n\nأرسل: <code>username</code> أو <code>@username</code>", "find"),
+        "adm_broadcast":  ("📢 <b>إرسال للجميع</b>\n\nأرسل نص الرسالة:", "broadcast"),
+    }
+    if d in _prompts:
+        text, state = _prompts[d]
+        admin_sessions[uid] = state
+        await query.edit_message_text(text, reply_markup=_BACK_KB, parse_mode='HTML')
+
+
+async def admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة النصوص في بوت الأدمن"""
+    uid = update.effective_user.id
+    if not is_admin(uid):
+        return
+    state = admin_sessions.get(uid)
+    if not state:
+        await update.message.reply_text(
+            "👋 <b>لوحة تحكم Repooreto</b>\n\nاختر عملية:",
+            reply_markup=_admin_kb(), parse_mode='HTML'
+        )
+        return
+
+    text = update.message.text.strip()
+    admin_sessions.pop(uid, None)
+
+    if state == "activate":
+        parts = text.split()
+        try:
+            target_uid = int(parts[0])
+            days = int(parts[1]) if len(parts) > 1 else SUB_DAYS
+        except (ValueError, IndexError):
+            await update.message.reply_text("❌ صيغة خاطئة. مثال: <code>123456 20</code>", parse_mode='HTML', reply_markup=_admin_kb())
+            return
+        expires = sub_activate(target_uid, days)
+        await update.message.reply_text(
+            f"✅ <b>تم التفعيل!</b>\n👤 <code>{target_uid}</code>\n📅 حتى: <b>{expires[:10]}</b>\n⏱ {days} يوم",
+            reply_markup=_admin_kb(), parse_mode='HTML'
+        )
         try:
             if main_app_ref:
                 await main_app_ref.bot.send_message(
-                    chat_id=u["user_id"],
-                    text=f"📢 <b>رسالة من الإدارة:</b>\n\n{message_text}",
+                    chat_id=target_uid,
+                    text=f"🎉 <b>تم تفعيل اشتراكك!</b>\n\n✅ مفتوح لمدة <b>{days} يوم</b>\n📅 ينتهي: <b>{expires[:10]}</b>\n\n👻 ابدأ الآن!",
                     parse_mode='HTML'
                 )
-                sent += 1
-            await asyncio.sleep(0.05)
         except Exception:
-            failed += 1
-    await update.message.reply_text(
-        f"✅ <b>اكتمل الإرسال</b>\n\n"
-        f"📨 أُرسل إلى: <b>{sent}</b>\n"
-        f"❌ فشل: <b>{failed}</b>",
-        parse_mode='HTML'
-    )
+            pass
+        return
 
+    if state == "deactivate":
+        try:
+            target_uid = int(text)
+        except ValueError:
+            await update.message.reply_text("❌ أرسل user_id رقمياً.", reply_markup=_admin_kb())
+            return
+        sub_deactivate(target_uid)
+        await update.message.reply_text(
+            f"❌ تم إلغاء اشتراك <code>{target_uid}</code>",
+            reply_markup=_admin_kb(), parse_mode='HTML'
+        )
+        try:
+            if main_app_ref:
+                await main_app_ref.bot.send_message(
+                    chat_id=target_uid,
+                    text="⚠️ <b>تم إيقاف اشتراكك.</b>\nتواصل مع الأدمن لتجديده.",
+                    parse_mode='HTML'
+                )
+        except Exception:
+            pass
+        return
 
-async def admin_activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
+    if state == "info":
+        try:
+            target_uid = int(text)
+        except ValueError:
+            await update.message.reply_text("❌ أرسل user_id رقمياً.", reply_markup=_admin_kb())
+            return
+        u = sub_get_user(target_uid)
+        if not u:
+            await update.message.reply_text("❌ المستخدم غير موجود.", reply_markup=_admin_kb())
+            return
+        status    = "✅ مشترك" if u["is_active"] else ("🆓 تجربة" if u["used"] < FREE_LIMIT else "🔒 منتهي")
+        until_val = str(u["expires_at"])[:10] if u["expires_at"] else "-"
+        await update.message.reply_text(
+            f"👤 <b>معلومات المستخدم</b>\n\n"
+            f"🆔 ID: <code>{u['user_id']}</code>\n"
+            f"📛 الاسم: {u['full_name'] or '-'}\n"
+            f"👤 يوزر: @{u['username'] or '-'}\n"
+            f"📊 الحالة: {status}\n"
+            f"📄 التقارير: {u['used']}\n"
+            f"📅 ينتهي: {until_val}",
+            reply_markup=_admin_kb(), parse_mode='HTML'
+        )
         return
-    if not context.args:
-        await update.message.reply_text("⚠️ الاستخدام: /activate <user_id> [days]\nمثال: /activate 123456789 20")
-        return
-    try:
-        uid = int(context.args[0])
-        days = int(context.args[1]) if len(context.args) > 1 else SUB_DAYS
-    except ValueError:
-        await update.message.reply_text("❌ user_id يجب أن يكون رقماً.")
-        return
-    expires = sub_activate(uid, days)
-    await update.message.reply_text(
-        f"✅ <b>تم التفعيل!</b>\n\n"
-        f"👤 المستخدم: <code>{uid}</code>\n"
-        f"📅 صالح حتى: <b>{expires[:10]}</b>\n"
-        f"⏱ المدة: {days} يوم",
-        parse_mode='HTML'
-    )
-    try:
-        if main_app_ref:
-            await main_app_ref.bot.send_message(
-                chat_id=uid,
-                text=(
-                    "🎉 <b>تم تفعيل اشتراكك!</b>\n\n"
-                    f"✅ البوت مفتوح لمدة <b>{days} يوم</b>\n"
-                    f"📅 ينتهي في: <b>{expires[:10]}</b>\n\n"
-                    f"👻 ابدأ الآن بإرسال موضوع تقريرك!"
-                ),
-                parse_mode='HTML'
+
+    if state == "find":
+        username = text.lstrip('@').lower()
+        with _db_conn() as c:
+            with c.cursor() as cur:
+                cur.execute(
+                    "SELECT user_id, username, full_name, used, is_active, expires_at FROM users WHERE lower(username)=%s",
+                    (username,)
+                )
+                rows = cur.fetchall()
+        if not rows:
+            await update.message.reply_text(f"❌ لا يوجد: @{username}", reply_markup=_admin_kb())
+            return
+        for r in rows:
+            u      = dict(r)
+            status = "✅ مشترك" if u["is_active"] else ("🆓 تجربة" if u["used"] < FREE_LIMIT else "🔒 منتهي")
+            until  = str(u["expires_at"])[:10] if u["expires_at"] else "-"
+            await update.message.reply_text(
+                f"🔍 <b>نتيجة البحث</b>\n\n"
+                f"🆔 ID: <code>{u['user_id']}</code>\n"
+                f"📛 الاسم: {u['full_name'] or '-'}\n"
+                f"👤 يوزر: @{u['username'] or '-'}\n"
+                f"📊 الحالة: {status}\n"
+                f"📄 التقارير: {u['used']}\n"
+                f"📅 ينتهي: {until}",
+                reply_markup=_admin_kb(), parse_mode='HTML'
             )
-    except Exception:
-        pass
+        return
 
-
-async def admin_deactivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    if not context.args:
-        await update.message.reply_text("⚠️ الاستخدام: /deactivate <user_id>")
-        return
-    try:
-        uid = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("❌ user_id يجب أن يكون رقماً.")
-        return
-    sub_deactivate(uid)
-    await update.message.reply_text(f"❌ تم إلغاء اشتراك <code>{uid}</code>", parse_mode='HTML')
-    try:
-        if main_app_ref:
-            await main_app_ref.bot.send_message(
-                chat_id=uid,
-                text="⚠️ <b>تم إيقاف اشتراكك.</b>\nتواصل مع الأدمن لتجديده.",
-                parse_mode='HTML'
-            )
-    except Exception:
-        pass
-
-
-async def admin_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    if not context.args:
-        await update.message.reply_text("⚠️ الاستخدام: /info <user_id>")
-        return
-    try:
-        uid = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("❌ user_id يجب أن يكون رقماً.")
-        return
-    u = sub_get_user(uid)
-    if not u:
-        await update.message.reply_text("❌ المستخدم غير موجود.")
-        return
-    status = "✅ مشترك" if u["is_active"] else ("🆓 تجربة" if u["used"] < FREE_LIMIT else "🔒 منتهي")
-    uid_val = u["user_id"]
-    name_val = u["full_name"] or "-"
-    uname_val = u["username"] or "-"
-    used_val = u["used"]
-    until_val = str(u["expires_at"])[:10] if u["expires_at"] else "-"
-    await update.message.reply_text(
-        f"👤 <b>معلومات المستخدم</b>\n\n"
-        f"🆔 ID: <code>{uid_val}</code>\n"
-        f"📛 الاسم: {name_val}\n"
-        f"👤 يوزر: @{uname_val}\n"
-        f"📊 الحالة: {status}\n"
-        f"📄 التقارير: {used_val}\n"
-        f"📅 ينتهي: {until_val}",
-        parse_mode='HTML'
-    )
-
-
-async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    users = sub_all_users()
-    if not users:
-        await update.message.reply_text("لا يوجد مستخدمون بعد.")
-        return
-    text = f"👥 <b>المستخدمون ({len(users)})</b>\n\n"
-    for u in users[:30]:
-        icon = "✅" if u["is_active"] else ("🆓" if u["used"] < FREE_LIMIT else "🔒")
-        name = u["username"] or u["full_name"] or "—"
-        until = str(u["expires_at"])[:10] if u["expires_at"] else "-"
-        text += f"{icon} <code>{u['user_id']}</code> | {name} | 📄{u['used']} | {until}\n"
-    if len(users) > 30:
-        text += f"\n... و{len(users)-30} آخرين"
-    await update.message.reply_text(text, parse_mode='HTML')
-
-
-async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    users = sub_all_users()
-    total = len(users)
-    active = sum(1 for u in users if u["is_active"])
-    trial = sum(1 for u in users if not u["is_active"] and u["used"] < FREE_LIMIT)
-    blocked = sum(1 for u in users if not u["is_active"] and u["used"] >= FREE_LIMIT)
-    reports = sum(u["used"] for u in users)
-    await update.message.reply_text(
-        f"📊 <b>إحصائيات Repooreto</b>\n\n"
-        f"👥 إجمالي المستخدمين: <b>{total}</b>\n"
-        f"✅ مشتركون نشطون: <b>{active}</b>\n"
-        f"🆓 في التجربة: <b>{trial}</b>\n"
-        f"🔒 منتهية تجربتهم: <b>{blocked}</b>\n"
-        f"📄 إجمالي التقارير: <b>{reports}</b>",
-        parse_mode='HTML'
-    )
+    if state == "broadcast":
+        users = sub_all_users()
+        sent = 0; failed = 0
+        await update.message.reply_text(f"📤 جاري الإرسال لـ {len(users)} مستخدم...")
+        for u in users:
+            try:
+                if main_app_ref:
+                    await main_app_ref.bot.send_message(
+                        chat_id=u["user_id"],
+                        text=f"📢 <b>رسالة من الإدارة:</b>\n\n{text}",
+                        parse_mode='HTML'
+                    )
+                    sent += 1
+                await asyncio.sleep(0.05)
+            except Exception:
+                failed += 1
+        await update.message.reply_text(
+            f"✅ <b>اكتمل الإرسال</b>\n📨 أُرسل: <b>{sent}</b>\n❌ فشل: <b>{failed}</b>",
+            reply_markup=_admin_kb(), parse_mode='HTML'
+        )
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2218,18 +2161,12 @@ if __name__ == '__main__':
         main_app.add_handler(CallbackQueryHandler(tables_callback,      pattern=r'^tbl_'))
         main_app.add_handler(CallbackQueryHandler(comp_yes_callback,    pattern=r'^comp_yes$'))
         main_app.add_handler(CallbackQueryHandler(comp_no_callback,     pattern=r'^comp_no$'))
-        main_app.add_handler(CallbackQueryHandler(format_callback,      pattern=r'^fmt_'))
         main_app.add_error_handler(error_handler)
 
         admin_app = ApplicationBuilder().token(admin_token).build()
-        admin_app.add_handler(CommandHandler('start',      admin_start))
-        admin_app.add_handler(CommandHandler('activate',   admin_activate))
-        admin_app.add_handler(CommandHandler('deactivate', admin_deactivate))
-        admin_app.add_handler(CommandHandler('info',       admin_info))
-        admin_app.add_handler(CommandHandler('find',       admin_find))
-        admin_app.add_handler(CommandHandler('users',      admin_users))
-        admin_app.add_handler(CommandHandler('stats',      admin_stats))
-        admin_app.add_handler(CommandHandler('broadcast',  admin_broadcast))
+        admin_app.add_handler(CommandHandler('start', admin_start))
+        admin_app.add_handler(CallbackQueryHandler(admin_callback, pattern=r'^adm_'))
+        admin_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_message))
 
         # تهيئة الطابور قبل تشغيل البوتين
         await main_app.initialize()
