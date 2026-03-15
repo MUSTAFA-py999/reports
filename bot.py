@@ -109,6 +109,7 @@ async def queue_worker(app):
             for uid in list(queue_positions.keys()):
                 if queue_positions[uid] > 0:
                     queue_positions[uid] -= 1
+
             try:
                 loop = asyncio.get_event_loop()
                 pdf_bytes, title = await loop.run_in_executor(None, generate_report, session)
@@ -329,9 +330,9 @@ LINE_HEIGHTS = {
 
 # هوامش الصفحة
 PAGE_MARGINS = {
-    "small":  {"label": "🔹 ضيقة (0.8 سم)", "value": "0.8cm"},
-    "medium": {"label": "🔸 متوسطة (2.5 سم)", "value": "2.5cm"},
-    "large":  {"label": "🔻 واسعة (3.5 سم)", "value": "3.5cm"},
+    "small":  {"label": "🔹 ضيقة (0.8 سم)",   "value": "0.8cm"},
+    "medium": {"label": "🔸 متوسطة (2 سم)",    "value": "2cm"},
+    "large":  {"label": "🔻 واسعة (2.5 سم)",   "value": "2.5cm"},
 }
 
 # أنماط العنوان
@@ -494,9 +495,9 @@ def get_llm():
     logger.info(f"🔑 Using API key ending: ...{api_key[-6:]}")
     return ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
-        temperature=0.7,
+        temperature=0.5,
         google_api_key=api_key,
-        max_retries=3
+        max_retries=2
     )
 
 
@@ -648,7 +649,7 @@ def generate_report(session: dict):
         )
 
         last_report = None
-        for attempt in range(5):
+        for attempt in range(2):  # محاولتان كافيتان — الأولى غالباً تنجح
             try:
                 result = llm.invoke([HumanMessage(content=prompt)])
                 report = parser.parse(result.content)
@@ -682,7 +683,7 @@ def generate_report(session: dict):
 
             except Exception as e:
                 logger.warning(f"Parse attempt {attempt+1} failed: {e}")
-                if attempt == 4 and last_report is None:
+                if attempt == 1 and last_report is None:
                     raise e
 
         # إذا لم نجد ضمن النطاق نستخدم الأقرب
@@ -776,7 +777,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 rows += f'<tr><td colspan="2" style="padding:9px 12px;border:1px solid #ddd;">{esc(item)}</td></tr>'
         return (
             f'<div class="block-stats" style="margin:18px 0;page-break-inside:avoid;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:14px;">{rows}</table></div>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:1em;">{rows}</table></div>'
         )
 
     elif bt == "examples":
@@ -791,7 +792,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             )
         return (
             f'<div style="margin:18px 0;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:14px;">{rows}</table></div>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:1em;">{rows}</table></div>'
         )
 
     elif bt == "pros_cons":
@@ -804,22 +805,22 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             if sep in str(x):
                 pts = str(x).split(sep, 1)
                 return (
-                    f'<li style="margin-bottom:8px;line-height:1.85;font-size:14px;">'
+                    f'<li style="margin-bottom:8px;line-height:1.85;font-size:1em;">'
                     f'<span style="font-weight:700;color:#1a5e38;">{esc(pts[0].strip())}</span>'
-                    f'<br><span style="color:#2d6a4f;font-size:13px;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
+                    f'<br><span style="color:#2d6a4f;font-size:0.88em;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
                 )
-            return f'<li style="margin-bottom:8px;line-height:1.85;font-size:14px;font-weight:600;color:#1a5e38;">{esc(x)}</li>'
+            return f'<li style="margin-bottom:8px;line-height:1.85;font-size:1em;font-weight:600;color:#1a5e38;">{esc(x)}</li>'
 
         def con_li(x):
             sep = " — "
             if sep in str(x):
                 pts = str(x).split(sep, 1)
                 return (
-                    f'<li style="margin-bottom:8px;line-height:1.85;font-size:14px;">'
+                    f'<li style="margin-bottom:8px;line-height:1.85;font-size:1em;">'
                     f'<span style="font-weight:700;color:#7b1a1a;">{esc(pts[0].strip())}</span>'
-                    f'<br><span style="color:#922b21;font-size:13px;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
+                    f'<br><span style="color:#922b21;font-size:0.88em;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
                 )
-            return f'<li style="margin-bottom:8px;line-height:1.85;font-size:14px;font-weight:600;color:#7b1a1a;">{esc(x)}</li>'
+            return f'<li style="margin-bottom:8px;line-height:1.85;font-size:1em;font-weight:600;color:#7b1a1a;">{esc(x)}</li>'
 
         if style == "A":
             p_lis = "".join(pro_li(x) for x in pros)
@@ -827,11 +828,11 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             inner = (
                 f'<table style="width:100%;border-collapse:separate;border-spacing:8px 0;"><tr>'
                 f'<td style="vertical-align:top;width:50%;padding:0;">'
-                f'<div style="background:#1a5e38;color:#fff;font-weight:700;font-size:14px;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["pros_label"]}</div>'
+                f'<div style="background:#1a5e38;color:#fff;font-weight:700;font-size:1em;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["pros_label"]}</div>'
                 f'<div style="background:#f0fff4;border:2px solid #1a5e38;border-top:none;border-radius:0 0 6px 6px;padding:10px 14px;">'
                 f'<ul style="{p_side}:14px;margin:0;">{p_lis}</ul></div></td>'
                 f'<td style="vertical-align:top;width:50%;padding:0;">'
-                f'<div style="background:#7b1a1a;color:#fff;font-weight:700;font-size:14px;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["cons_label"]}</div>'
+                f'<div style="background:#7b1a1a;color:#fff;font-weight:700;font-size:1em;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["cons_label"]}</div>'
                 f'<div style="background:#fff5f5;border:2px solid #7b1a1a;border-top:none;border-radius:0 0 6px 6px;padding:10px 14px;">'
                 f'<ul style="{p_side}:14px;margin:0;">{c_lis}</ul></div></td>'
                 f'</tr></table>'
@@ -846,19 +847,19 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 sep = " — "
                 if sep in str(item):
                     pts = str(item).split(sep, 1)
-                    cell = f'<span style="font-weight:700;">{esc(pts[0].strip())}</span><span style="color:#555;font-size:13px;"> — {esc(pts[1].strip())}</span>'
+                    cell = f'<span style="font-weight:700;">{esc(pts[0].strip())}</span><span style="color:#555;font-size:0.88em;"> — {esc(pts[1].strip())}</span>'
                 else:
                     cell = f'<span style="font-weight:600;">{esc(item)}</span>'
                 rows_html += (
                     f'<tr style="background:{row_bg};">'
                     f'<td style="width:32px;text-align:center;font-weight:800;color:{dot_bg};font-size:17px;padding:10px 6px;border-bottom:1px solid #e8e8e8;">{dot_char}</td>'
-                    f'<td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;font-size:14px;line-height:1.8;">{cell}</td></tr>'
+                    f'<td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;font-size:1em;line-height:1.8;">{cell}</td></tr>'
                 )
             inner = (
                 f'<table style="width:100%;border-collapse:collapse;border:1px solid #d0d0d0;">'
                 f'<thead><tr>'
-                f'<th style="background:#2d3748;color:#fff;padding:9px 6px;width:32px;font-size:14px;">±</th>'
-                f'<th style="background:#2d3748;color:#fff;padding:9px 14px;text-align:{align};font-size:14px;">التفاصيل</th>'
+                f'<th style="background:#2d3748;color:#fff;padding:9px 6px;width:32px;font-size:1em;">±</th>'
+                f'<th style="background:#2d3748;color:#fff;padding:9px 14px;text-align:{align};font-size:1em;">التفاصيل</th>'
                 f'</tr></thead><tbody>{rows_html}</tbody></table>'
             )
         elif style == "C":
@@ -866,10 +867,10 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             c_lis = "".join(con_li(x) for x in cons)
             inner = (
                 f'<div style="border:2px solid #1a5e38;border-radius:8px;margin-bottom:10px;">'
-                f'<div style="background:#1a5e38;color:#fff;font-weight:700;font-size:14px;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["pros_label"]}</div>'
+                f'<div style="background:#1a5e38;color:#fff;font-weight:700;font-size:1em;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["pros_label"]}</div>'
                 f'<div style="background:#f0fff4;padding:10px 16px;"><ul style="{p_side}:16px;margin:0;">{p_lis}</ul></div></div>'
                 f'<div style="border:2px solid #7b1a1a;border-radius:8px;">'
-                f'<div style="background:#7b1a1a;color:#fff;font-weight:700;font-size:14px;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["cons_label"]}</div>'
+                f'<div style="background:#7b1a1a;color:#fff;font-weight:700;font-size:1em;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["cons_label"]}</div>'
                 f'<div style="background:#fff5f5;padding:10px 16px;"><ul style="{p_side}:16px;margin:0;">{c_lis}</ul></div></div>'
             )
         else:  # D
@@ -885,7 +886,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                     items_html += (
                         f'<div style="display:flex;gap:10px;margin-bottom:10px;align-items:flex-start;">'
                         f'<span style="font-size:17px;flex-shrink:0;">{emoji}</span>'
-                        f'<span style="font-size:14px;line-height:1.85;">{t}</span></div>'
+                        f'<span style="font-size:1em;line-height:1.85;">{t}</span></div>'
                     )
             inner = f'<div style="background:{bg};{b_side}:3px solid {a};padding:14px 18px;border-radius:6px;">{items_html}</div>'
 
@@ -906,7 +907,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             rows += f"<tr>{tds}</tr>"
         return (
             f'<div class="block-table" style="margin:18px 0;page-break-inside:avoid;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:14px;">'
+            f'<table style="width:100%;border-collapse:collapse;font-size:1em;">'
             f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table></div>'
         )
 
@@ -931,7 +932,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             )
         return (
             f'<div class="block-comparison" style="margin:18px 0;page-break-inside:avoid;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:14px;">'
+            f'<table style="width:100%;border-collapse:collapse;font-size:1em;">'
             f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table></div>'
         )
 
@@ -1092,10 +1093,11 @@ def render_html(report: DynamicReport, session: dict) -> str:
     margin: 0; padding: 0;
     word-spacing: 0.05em;
   }}
-  p  {{ text-align: justify; margin: 0 0 9px 0; }}
+  p  {{ text-align: justify; margin: 0 0 9px 0; font-size: 1em; }}
   h1 {{ font-size: {header_size} !important; text-align: center; color: {header_color}; }}
-  h2 {{ font-size: 15.5px !important; text-align: {align}; }}
-  li {{ text-align: {align}; }}
+  h2 {{ font-size: 1.05em !important; text-align: {align}; }}
+  li {{ text-align: {align}; font-size: 1em; }}
+  td, th {{ font-size: 0.95em; }}
   p, li {{ orphans: 2; widows: 2; }}
   .block-table, .block-stats, .block-comparison {{ page-break-inside: avoid; }}
   h2 {{ page-break-after: avoid; orphans: 3; widows: 3; }}
@@ -1237,7 +1239,10 @@ def build_queue_text(session: dict, pos: int) -> str:
     depth_name = DEPTH_OPTIONS[session.get("depth", "medium")]["name"]
     tpl_name = "🎨 مخصص" if session.get("custom_mode") else TEMPLATES.get(session.get("template", "emerald"), {}).get("name", "")
     safe_topic = session["topic"].replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
-    status = "👻 <b>الشبح بدأ يكتب تقريرك!</b>" if pos == 1 else f"⏳ <b>في الطابور — الترتيب {pos}</b> 👻"
+    if pos == 1:
+        status = "✍️ 👻 <b>الشبح يكتب تقريرك الآن!</b>"
+    else:
+        status = f"⏳ <b>في الطابور — الترتيب {pos}</b>\n✍️ 👻 <b>الشبح يكتب تقريرك قريباً!</b>"
     tip = "\n\n💡 <i>نصيحة: جرّب خيار التخصيص الكامل لتقرير فريد من نوعه ✨</i>"
     patience = "\n⏱ <i>قد يستغرق الإنشاء عدة دقائق، الجودة تستحق الانتظار! ☕</i>"
     return f"{status}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}{patience}{tip}"
