@@ -1244,7 +1244,7 @@ def build_queue_text(session: dict, pos: int) -> str:
     else:
         status = f"⏳ <b>في الطابور — الترتيب {pos}</b>\n✍️ 👻 <b>الشبح يكتب تقريرك قريباً!</b>"
     tip = "\n\n💡 <i>نصيحة: جرّب خيار التخصيص الكامل لتقرير فريد من نوعه ✨</i>"
-    patience = "\n⏱ <i>قد يستغرق الإنشاء عدة دقائق، الجودة تستحق الانتظار! ☕</i>"
+    patience = "\n⏱ <b>قد يستغرق الإنشاء عدة دقائق، الجودة تستحق الانتظار! ☕</b>"
     return f"{status}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}{patience}{tip}"
 
 
