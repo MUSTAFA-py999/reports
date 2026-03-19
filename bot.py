@@ -323,9 +323,9 @@ CUSTOM_FONTS = {**ARABIC_FONTS, **ENGLISH_FONTS}
 
 # تباعد الأسطر
 LINE_HEIGHTS = {
-    "compact": {"label": "📏 مضغوط (1.5)", "value": "1.5"},
-    "normal":  {"label": "📐 عادي (1.8)",   "value": "1.8"},
-    "relaxed": {"label": "📏 واسع (2.2)",   "value": "2.2"},
+    "compact": {"label": "📏 مضغوط (1.4)", "value": "1.4"},
+    "normal":  {"label": "📐 عادي (1.6)",   "value": "1.6"},
+    "relaxed": {"label": "📏 واسع (1.9)",   "value": "1.9"},
 }
 
 # هوامش الصفحة
@@ -606,8 +606,8 @@ STUDENT:
 {qa_block.strip()}
 {comparison_injection}
 {block_restrictions}
-TYPES: paragraph(text)|bullets(items 5-7)|numbered_list(items 5-7)|table(headers+rows≤6,max2)|pros_cons(pros4-5,cons4-5)|comparison(side_a,side_b,criteria4-6,max2)|stats(items5-6)|examples(items5-6)|quote(text2-3sent)
-MIX: 45% paragraph, 35% list, 20% table. No 2 short blocks consecutive.
+TYPES: paragraph(text)|bullets(items 4-6)|numbered_list(items 4-6)|table(headers+rows≤5,max1)|pros_cons(pros3-4,cons3-4,max1)|comparison(side_a,side_b,criteria3-5,max1)|stats(items4-5)|examples(items4-5)|quote(text1-2sent)
+MIX: 55% paragraph, 30% list, 15% table. Max 1 pros_cons block total. Max 1 table block total. No 2 short blocks consecutive. ALL blocks must fit within their page — never split a block across pages.
 STYLE: Natural academic. Vary sentence length. No "In this report" opener. Direct start.
 
 {format_instructions}"""
@@ -738,28 +738,41 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
     b_side = "border-right" if is_rtl else "border-left"
     p_side = "padding-right" if is_rtl else "padding-left"
     is_dark = (p == "#d4af37")
-    txt_color = "#e2e8f0" if is_dark else "#333333"
+    txt_color = "#e2e8f0" if is_dark else "#2d3436"
     h2_bg = "#3d4a5c" if is_dark else bg
+    shadow = "box-shadow:0 1px 4px rgba(0,0,0,0.07);"
 
     h2 = (
-        f'<h2 style="color:{p};font-size:15.5px;font-weight:bold;'
-        f'padding:10px 16px;background:{h2_bg};'
-        f'{b_side}:5px solid {a};margin:0 0 13px 0;">'
+        f'<h2 style="color:{p};font-size:1.05em;font-weight:700;'
+        f'padding:9px 16px;background:{h2_bg};'
+        f'{b_side}:4px solid {a};margin:0 0 0 0;'
+        f'border-radius:4px 4px 0 0;letter-spacing:0.01em;">'
         f'{esc(b.title)}</h2>'
     )
     bt = (b.block_type or "paragraph").strip().lower()
 
+    wrap_open  = f'<div style="margin:20px 0;border-radius:6px;overflow:hidden;{shadow}">'
+    wrap_close = '</div>'
+
     if bt == "paragraph":
-        return f'<div style="margin:18px 0;">{h2}{text_to_paras(b.text or "", align)}</div>'
+        return (
+            f'{wrap_open}{h2}'
+            f'<div style="padding:14px 16px;background:{bg2 if not is_dark else "#2d3748"};">'
+            f'{text_to_paras(b.text or "", align)}</div>{wrap_close}'
+        )
 
     elif bt in ("bullets", "numbered_list"):
         tag = "ol" if bt == "numbered_list" else "ul"
         lis = "".join(
-            f'<li style="margin-bottom:10px;line-height:1.95;color:{txt_color};">'
+            f'<li style="margin-bottom:9px;line-height:1.9;color:{txt_color};">'
             f'{render_item_with_subnote(i, txt_color, a)}</li>'
             for i in (b.items or [])
         )
-        return f'<div style="margin:18px 0;">{h2}<{tag} style="{p_side}:22px;margin:0;">{lis}</{tag}></div>'
+        return (
+            f'{wrap_open}{h2}'
+            f'<div style="padding:14px 16px;background:{bg2 if not is_dark else "#2d3748"};">'
+            f'<{tag} style="{p_side}:20px;margin:0;">{lis}</{tag}></div>{wrap_close}'
+        )
 
     elif bt == "stats":
         rows = ""
@@ -768,16 +781,16 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             bg_r = bg if idx % 2 == 0 else bg2
             if len(parts) == 2:
                 rows += (
-                    f'<tr><td style="font-weight:bold;color:{p};padding:9px 12px;background:{bg};'
-                    f'border:1px solid #ddd;width:36%;">{esc(parts[0].strip())}</td>'
-                    f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};'
+                    f'<tr><td style="font-weight:700;color:{p};padding:9px 14px;background:{bg};'
+                    f'border:1px solid rgba(0,0,0,0.08);width:36%;">{esc(parts[0].strip())}</td>'
+                    f'<td style="padding:9px 14px;border:1px solid rgba(0,0,0,0.08);background:{bg_r};'
                     f'color:{txt_color};">{esc(parts[1].strip())}</td></tr>'
                 )
             else:
-                rows += f'<tr><td colspan="2" style="padding:9px 12px;border:1px solid #ddd;">{esc(item)}</td></tr>'
+                rows += f'<tr><td colspan="2" style="padding:9px 14px;border:1px solid rgba(0,0,0,0.08);">{esc(item)}</td></tr>'
         return (
-            f'<div class="block-stats" style="margin:18px 0;page-break-inside:avoid;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:1em;">{rows}</table></div>'
+            f'<div class="block-stats" style="margin:20px 0;page-break-inside:avoid;border-radius:6px;overflow:hidden;{shadow}">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;">{rows}</table></div>'
         )
 
     elif bt == "examples":
@@ -785,14 +798,14 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         for idx, item in enumerate(b.items or [], 1):
             bg_r = bg if idx % 2 == 1 else bg2
             rows += (
-                f'<tr><td style="width:28px;text-align:center;font-weight:bold;color:#fff;'
-                f'background:{a};padding:9px;border:1px solid #ddd;">{idx}</td>'
-                f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};'
-                f'line-height:1.95;color:{txt_color};">{render_item_with_subnote(item, txt_color, a)}</td></tr>'
+                f'<tr><td style="width:30px;text-align:center;font-weight:700;color:#fff;'
+                f'background:{a};padding:9px 6px;border:1px solid rgba(0,0,0,0.08);">{idx}</td>'
+                f'<td style="padding:9px 14px;border:1px solid rgba(0,0,0,0.08);background:{bg_r};'
+                f'line-height:1.9;color:{txt_color};">{render_item_with_subnote(item, txt_color, a)}</td></tr>'
             )
         return (
-            f'<div style="margin:18px 0;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:1em;">{rows}</table></div>'
+            f'<div style="margin:20px 0;border-radius:6px;overflow:hidden;{shadow}">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;">{rows}</table></div>'
         )
 
     elif bt == "pros_cons":
@@ -805,35 +818,35 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             if sep in str(x):
                 pts = str(x).split(sep, 1)
                 return (
-                    f'<li style="margin-bottom:8px;line-height:1.85;font-size:1em;">'
+                    f'<li style="margin-bottom:8px;line-height:1.85;">'
                     f'<span style="font-weight:700;color:#1a5e38;">{esc(pts[0].strip())}</span>'
                     f'<br><span style="color:#2d6a4f;font-size:0.88em;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
                 )
-            return f'<li style="margin-bottom:8px;line-height:1.85;font-size:1em;font-weight:600;color:#1a5e38;">{esc(x)}</li>'
+            return f'<li style="margin-bottom:8px;line-height:1.85;font-weight:600;color:#1a5e38;">{esc(x)}</li>'
 
         def con_li(x):
             sep = " — "
             if sep in str(x):
                 pts = str(x).split(sep, 1)
                 return (
-                    f'<li style="margin-bottom:8px;line-height:1.85;font-size:1em;">'
+                    f'<li style="margin-bottom:8px;line-height:1.85;">'
                     f'<span style="font-weight:700;color:#7b1a1a;">{esc(pts[0].strip())}</span>'
                     f'<br><span style="color:#922b21;font-size:0.88em;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
                 )
-            return f'<li style="margin-bottom:8px;line-height:1.85;font-size:1em;font-weight:600;color:#7b1a1a;">{esc(x)}</li>'
+            return f'<li style="margin-bottom:8px;line-height:1.85;font-weight:600;color:#7b1a1a;">{esc(x)}</li>'
 
         if style == "A":
             p_lis = "".join(pro_li(x) for x in pros)
             c_lis = "".join(con_li(x) for x in cons)
             inner = (
-                f'<table style="width:100%;border-collapse:separate;border-spacing:8px 0;"><tr>'
+                f'<table style="width:100%;border-collapse:separate;border-spacing:6px 0;padding:10px 10px 12px;background:{bg2 if not is_dark else "#2d3748"};"><tr>'
                 f'<td style="vertical-align:top;width:50%;padding:0;">'
-                f'<div style="background:#1a5e38;color:#fff;font-weight:700;font-size:1em;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["pros_label"]}</div>'
-                f'<div style="background:#f0fff4;border:2px solid #1a5e38;border-top:none;border-radius:0 0 6px 6px;padding:10px 14px;">'
+                f'<div style="background:#1a5e38;color:#fff;font-weight:700;padding:8px 14px;border-radius:5px 5px 0 0;">{lang["pros_label"]}</div>'
+                f'<div style="background:#f0fff4;border:1.5px solid #1a5e38;border-top:none;border-radius:0 0 5px 5px;padding:10px 14px;">'
                 f'<ul style="{p_side}:14px;margin:0;">{p_lis}</ul></div></td>'
                 f'<td style="vertical-align:top;width:50%;padding:0;">'
-                f'<div style="background:#7b1a1a;color:#fff;font-weight:700;font-size:1em;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["cons_label"]}</div>'
-                f'<div style="background:#fff5f5;border:2px solid #7b1a1a;border-top:none;border-radius:0 0 6px 6px;padding:10px 14px;">'
+                f'<div style="background:#7b1a1a;color:#fff;font-weight:700;padding:8px 14px;border-radius:5px 5px 0 0;">{lang["cons_label"]}</div>'
+                f'<div style="background:#fff5f5;border:1.5px solid #7b1a1a;border-top:none;border-radius:0 0 5px 5px;padding:10px 14px;">'
                 f'<ul style="{p_side}:14px;margin:0;">{c_lis}</ul></div></td>'
                 f'</tr></table>'
             )
@@ -847,31 +860,32 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 sep = " — "
                 if sep in str(item):
                     pts = str(item).split(sep, 1)
-                    cell = f'<span style="font-weight:700;">{esc(pts[0].strip())}</span><span style="color:#555;font-size:0.88em;"> — {esc(pts[1].strip())}</span>'
+                    cell = f'<span style="font-weight:700;">{esc(pts[0].strip())}</span><span style="color:#666;font-size:0.88em;"> — {esc(pts[1].strip())}</span>'
                 else:
                     cell = f'<span style="font-weight:600;">{esc(item)}</span>'
                 rows_html += (
                     f'<tr style="background:{row_bg};">'
-                    f'<td style="width:32px;text-align:center;font-weight:800;color:{dot_bg};font-size:17px;padding:10px 6px;border-bottom:1px solid #e8e8e8;">{dot_char}</td>'
-                    f'<td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;font-size:1em;line-height:1.8;">{cell}</td></tr>'
+                    f'<td style="width:32px;text-align:center;font-weight:800;color:{dot_bg};font-size:1.1em;padding:10px 6px;border-bottom:1px solid rgba(0,0,0,0.06);">{dot_char}</td>'
+                    f'<td style="padding:10px 14px;border-bottom:1px solid rgba(0,0,0,0.06);line-height:1.8;">{cell}</td></tr>'
                 )
             inner = (
-                f'<table style="width:100%;border-collapse:collapse;border:1px solid #d0d0d0;">'
+                f'<table style="width:100%;border-collapse:collapse;">'
                 f'<thead><tr>'
-                f'<th style="background:#2d3748;color:#fff;padding:9px 6px;width:32px;font-size:1em;">±</th>'
-                f'<th style="background:#2d3748;color:#fff;padding:9px 14px;text-align:{align};font-size:1em;">التفاصيل</th>'
+                f'<th style="background:#2d3748;color:#fff;padding:9px 6px;width:32px;">±</th>'
+                f'<th style="background:#2d3748;color:#fff;padding:9px 14px;text-align:{align};">التفاصيل</th>'
                 f'</tr></thead><tbody>{rows_html}</tbody></table>'
             )
         elif style == "C":
             p_lis = "".join(pro_li(x) for x in pros)
             c_lis = "".join(con_li(x) for x in cons)
             inner = (
-                f'<div style="border:2px solid #1a5e38;border-radius:8px;margin-bottom:10px;">'
-                f'<div style="background:#1a5e38;color:#fff;font-weight:700;font-size:1em;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["pros_label"]}</div>'
+                f'<div style="padding:10px 12px;background:{bg2 if not is_dark else "#2d3748"};">'
+                f'<div style="border:1.5px solid #1a5e38;border-radius:6px;margin-bottom:10px;">'
+                f'<div style="background:#1a5e38;color:#fff;font-weight:700;padding:8px 14px;border-radius:5px 5px 0 0;">{lang["pros_label"]}</div>'
                 f'<div style="background:#f0fff4;padding:10px 16px;"><ul style="{p_side}:16px;margin:0;">{p_lis}</ul></div></div>'
-                f'<div style="border:2px solid #7b1a1a;border-radius:8px;">'
-                f'<div style="background:#7b1a1a;color:#fff;font-weight:700;font-size:1em;padding:9px 16px;border-radius:6px 6px 0 0;">{lang["cons_label"]}</div>'
-                f'<div style="background:#fff5f5;padding:10px 16px;"><ul style="{p_side}:16px;margin:0;">{c_lis}</ul></div></div>'
+                f'<div style="border:1.5px solid #7b1a1a;border-radius:6px;">'
+                f'<div style="background:#7b1a1a;color:#fff;font-weight:700;padding:8px 14px;border-radius:5px 5px 0 0;">{lang["cons_label"]}</div>'
+                f'<div style="background:#fff5f5;padding:10px 16px;"><ul style="{p_side}:16px;margin:0;">{c_lis}</ul></div></div></div>'
             )
         else:  # D
             items_html = ""
@@ -880,34 +894,34 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                     sep = " — "
                     if sep in str(x):
                         pts = str(x).split(sep, 1)
-                        t = f'<b>{esc(pts[0].strip())}</b> — <span style="color:#555;">{esc(pts[1].strip())}</span>'
+                        t = f'<b>{esc(pts[0].strip())}</b> — <span style="color:#666;">{esc(pts[1].strip())}</span>'
                     else:
                         t = f'<b>{esc(x)}</b>'
                     items_html += (
-                        f'<div style="display:flex;gap:10px;margin-bottom:10px;align-items:flex-start;">'
-                        f'<span style="font-size:17px;flex-shrink:0;">{emoji}</span>'
-                        f'<span style="font-size:1em;line-height:1.85;">{t}</span></div>'
+                        f'<div style="display:flex;gap:10px;margin-bottom:9px;align-items:flex-start;">'
+                        f'<span style="font-size:1.1em;flex-shrink:0;">{emoji}</span>'
+                        f'<span style="line-height:1.85;">{t}</span></div>'
                     )
-            inner = f'<div style="background:{bg};{b_side}:3px solid {a};padding:14px 18px;border-radius:6px;">{items_html}</div>'
+            inner = f'<div style="background:{bg2 if not is_dark else "#2d3748"};padding:14px 18px;">{items_html}</div>'
 
-        return f'<div style="margin:18px 0;">{h2}{inner}</div>'
+        return f'<div class="block-pros-cons" style="margin:20px 0;border-radius:6px;overflow:hidden;{shadow};page-break-inside:avoid;">{h2}{inner}</div>'
 
     elif bt == "table":
         ths = "".join(
-            f'<th style="background:{p};color:#fff;padding:10px 12px;text-align:{align};font-weight:bold;">{esc(h)}</th>'
+            f'<th style="background:{p};color:#fff;padding:10px 14px;text-align:{align};font-weight:700;">{esc(h)}</th>'
             for h in (b.headers or [])
         )
         rows = ""
         for ridx, row in enumerate(b.rows or []):
             bg_r = bg if ridx % 2 == 0 else bg2
             tds = "".join(
-                f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};color:{txt_color};">{esc(c)}</td>'
+                f'<td style="padding:9px 14px;border:1px solid rgba(0,0,0,0.08);background:{bg_r};color:{txt_color};">{esc(c)}</td>'
                 for c in row
             )
             rows += f"<tr>{tds}</tr>"
         return (
-            f'<div class="block-table" style="margin:18px 0;page-break-inside:avoid;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:1em;">'
+            f'<div class="block-table" style="margin:20px 0;page-break-inside:avoid;border-radius:6px;overflow:hidden;{shadow}">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;">'
             f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table></div>'
         )
 
@@ -918,21 +932,21 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         av = b.side_a_values or []
         bv = b.side_b_values or []
         ths = (
-            f'<th style="background:{p};color:#fff;padding:10px 12px;">المعيار</th>'
-            f'<th style="background:{p};color:#fff;padding:10px 12px;">{sa}</th>'
-            f'<th style="background:{p};color:#fff;padding:10px 12px;">{sb}</th>'
+            f'<th style="background:{p};color:#fff;padding:10px 14px;text-align:{align};">المعيار</th>'
+            f'<th style="background:{a};color:#fff;padding:10px 14px;text-align:center;">{sa}</th>'
+            f'<th style="background:{p};color:#fff;padding:10px 14px;text-align:center;opacity:0.85;">{sb}</th>'
         )
         rows = ""
         for idx, crit in enumerate(cr):
             bg_r = bg if idx % 2 == 0 else bg2
             rows += (
-                f'<tr><td style="font-weight:bold;color:{p};padding:9px 12px;border:1px solid #ddd;background:{bg};">{esc(crit)}</td>'
-                f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};">{esc(av[idx]) if idx < len(av) else "-"}</td>'
-                f'<td style="padding:9px 12px;border:1px solid #ddd;background:{bg_r};">{esc(bv[idx]) if idx < len(bv) else "-"}</td></tr>'
+                f'<tr><td style="font-weight:700;color:{p};padding:9px 14px;border:1px solid rgba(0,0,0,0.08);background:{bg};">{esc(crit)}</td>'
+                f'<td style="padding:9px 14px;border:1px solid rgba(0,0,0,0.08);background:{bg_r};text-align:center;">{esc(av[idx]) if idx < len(av) else "—"}</td>'
+                f'<td style="padding:9px 14px;border:1px solid rgba(0,0,0,0.08);background:{bg_r};text-align:center;">{esc(bv[idx]) if idx < len(bv) else "—"}</td></tr>'
             )
         return (
-            f'<div class="block-comparison" style="margin:18px 0;page-break-inside:avoid;">{h2}'
-            f'<table style="width:100%;border-collapse:collapse;font-size:1em;">'
+            f'<div class="block-comparison" style="margin:20px 0;page-break-inside:avoid;border-radius:6px;overflow:hidden;{shadow}">{h2}'
+            f'<table style="width:100%;border-collapse:collapse;">'
             f'<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table></div>'
         )
 
@@ -940,13 +954,19 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         bd = "border-right" if is_rtl else "border-left"
         pd = "padding-right" if is_rtl else "padding-left"
         return (
-            f'<div style="margin:18px 0;">{h2}'
-            f'<blockquote style="{bd}:5px solid {a};{pd}:16px;margin:0;'
-            f'color:#555;font-style:italic;line-height:2.0;">{esc(b.text or "")}</blockquote></div>'
+            f'<div style="margin:20px 0;border-radius:6px;overflow:hidden;{shadow}">{h2}'
+            f'<div style="background:{bg2 if not is_dark else "#2d3748"};padding:14px 20px;">'
+            f'<blockquote style="{bd}:4px solid {a};{pd}:16px;margin:0;'
+            f'color:#555;font-style:italic;line-height:2.0;">{esc(b.text or "")}</blockquote>'
+            f'</div></div>'
         )
 
     else:
-        return f'<div style="margin:18px 0;">{h2}{text_to_paras(b.text or "", align)}</div>'
+        return (
+            f'{wrap_open}{h2}'
+            f'<div style="padding:14px 16px;background:{bg2 if not is_dark else "#2d3748"};">'
+            f'{text_to_paras(b.text or "", align)}</div>{wrap_close}'
+        )
 
 
 def render_html(report: DynamicReport, session: dict) -> str:
@@ -975,12 +995,12 @@ def render_html(report: DynamicReport, session: dict) -> str:
     else:
         tc = TEMPLATES[template_name]
         p, a, bg, bg2 = tc["primary"], tc["accent"], tc["bg"], tc["bg2"]
-        font_size = "16.5px"
+        font_size = "17px"
         font = lang["font"]
-        line_height = "1.8"
-        page_margin = "2.5cm"
+        line_height = "1.6"
+        page_margin = "1.2cm"
         header_color = p
-        header_size = "24px"
+        header_size = "22px"
         show_hf = False   # الترويسة مخفية دائماً
 
     tc_dict = {"primary": p, "accent": a, "bg": bg, "bg2": bg2}
@@ -1091,15 +1111,16 @@ def render_html(report: DynamicReport, session: dict) -> str:
     background: {page_bg};
     font-size: {font_size};
     margin: 0; padding: 0;
-    word-spacing: 0.05em;
+    word-spacing: 0.04em;
   }}
-  p  {{ text-align: justify; margin: 0 0 9px 0; font-size: 1em; }}
-  h1 {{ font-size: {header_size} !important; text-align: center; color: {header_color}; }}
-  h2 {{ font-size: 1.05em !important; text-align: {align}; }}
-  li {{ text-align: {align}; font-size: 1em; }}
+  p   {{ text-align: justify; margin: 0 0 10px 0; font-size: 1em; }}
+  h1  {{ font-size: {header_size} !important; text-align: center; color: {header_color};
+         margin: 0 0 6px 0; font-weight: 800; letter-spacing: 0.01em; }}
+  h2  {{ font-size: 1.05em !important; text-align: {align}; font-weight: 700; margin: 0; }}
+  li  {{ text-align: {align}; font-size: 1em; }}
   td, th {{ font-size: 0.95em; }}
   p, li {{ orphans: 2; widows: 2; }}
-  .block-table, .block-stats, .block-comparison {{ page-break-inside: avoid; }}
+  .block-table, .block-stats, .block-comparison, .block-pros-cons {{ page-break-inside: avoid; }}
   h2 {{ page-break-after: avoid; orphans: 3; widows: 3; }}
 </style>
 </head>
@@ -1107,13 +1128,14 @@ def render_html(report: DynamicReport, session: dict) -> str:
 
 {prof_top}
 
-<h1 style="text-align:center; padding-bottom:14px; margin-bottom:28px; border-bottom:3px solid {a};">
-  {esc(report.title)}
-</h1>
+<div style="text-align:center;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid {a};">
+  <h1>{esc(report.title)}</h1>
+</div>
 
-<div style="background:{box_bg};padding:18px 22px;border-radius:8px;
-            margin:0 0 20px 0;{b_side}:5px solid {a};">
-  <h2 style="color:{p};font-size:15.5px;font-weight:bold;margin:0 0 10px 0;">
+<div style="background:{box_bg};padding:16px 20px;border-radius:6px;
+            margin:0 0 20px 0;{b_side}:4px solid {a};
+            box-shadow:0 1px 4px rgba(0,0,0,0.07);">
+  <h2 style="color:{p};font-weight:700;margin:0 0 10px 0;">
     📚 {lang['intro_label']}
   </h2>
   {text_to_paras(report.introduction, align)}
@@ -1121,9 +1143,10 @@ def render_html(report: DynamicReport, session: dict) -> str:
 
 {blocks_html}
 
-<div style="background:{box_bg};padding:18px 22px;border-radius:8px;
-            margin:20px 0 0 0;{b_side}:5px solid {a};">
-  <h2 style="color:{p};font-size:15.5px;font-weight:bold;margin:0 0 10px 0;">
+<div style="background:{box_bg};padding:16px 20px;border-radius:6px;
+            margin:20px 0 0 0;{b_side}:4px solid {a};
+            box-shadow:0 1px 4px rgba(0,0,0,0.07);">
+  <h2 style="color:{p};font-weight:700;margin:0 0 10px 0;">
     🎯 {lang['conclusion_label']}
   </h2>
   {text_to_paras(report.conclusion, align)}
@@ -1244,7 +1267,7 @@ def build_queue_text(session: dict, pos: int) -> str:
     else:
         status = f"⏳ <b>في الطابور — الترتيب {pos}</b>\n✍️ 👻 <b>الشبح يكتب تقريرك قريباً!</b>"
     tip = "\n\n💡 <i>نصيحة: جرّب خيار التخصيص الكامل لتقرير فريد من نوعه ✨</i>"
-    patience = "\n⏱ <b>قد يستغرق الإنشاء عدة دقائق، الجودة تستحق الانتظار! ☕</b>"
+    patience = "\n⏱ <i>قد يستغرق الإنشاء عدة دقائق، الجودة تستحق الانتظار! ☕</i>"
     return f"{status}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}{patience}{tip}"
 
 
