@@ -335,11 +335,11 @@ PAGE_MARGINS = {
     "large":  {"label": "🔻 واسعة (2.5 سم)",   "value": "2.5cm"},
 }
 
-# أنماط العنوان
+# أنماط العنوان الرئيسي
 HEADER_STYLES = {
-    "classic": {"label": "🏛 كلاسيكي (أسود)", "color": "#000000", "size": "22px"},
-    "colored": {"label": "🎨 ملون (حسب التصميم)", "color": "auto", "size": "24px"},
-    "minimal": {"label": "⬜ بسيط (رمادي)", "color": "#4a5568", "size": "20px"},
+    "formal":    {"label": "🏛 رسمي — خط كبير + خط سفلي مزدوج",   "color": "auto", "size": "24px", "style": "formal"},
+    "classic":   {"label": "📄 كلاسيكي — توسيط بسيط + خط سفلي",   "color": "auto", "size": "22px", "style": "classic"},
+    "modern":    {"label": "🎯 عصري — خلفية ملونة + نص أبيض",      "color": "#ffffff", "size": "22px", "style": "modern"},
 }
 
 # إظهار الترويسة
@@ -431,7 +431,7 @@ STATE_GUIDANCE = {
     "choosing_page_margin": "📐 من فضلك <b>اختر هوامش الصفحة</b> من الأزرار أعلاه.",
     "choosing_pros_cons":   "✅ من فضلك <b>اختر تضمين المزايا/العيوب</b> من الأزرار أعلاه.",
     "choosing_tables":      "📊 من فضلك <b>اختر تضمين الجداول</b> من الأزرار أعلاه.",
-    "choosing_header_style":"🎯 من فضلك <b>اختر نمط العنوان الرئيسي</b> من الأزرار أعلاه.",
+    "choosing_header_style":"🎯 من فضلك <b>اختر شكل العنوان</b> من الأزرار أعلاه.",
     "choosing_show_header": "📰 من فضلك <b>اختر إظهار الترويسة والتذييل</b> من الأزرار أعلاه.",
     "asking_comparison":    "📊 من فضلك <b>اختر</b> من الأزرار أعلاه.",
     "entering_comparison":  "✏️ اكتب الشيئين اللذين تريد مقارنتهما.\nمثال: <code>Python مقابل Java</code>",
@@ -986,12 +986,8 @@ def render_html(report: DynamicReport, session: dict) -> str:
             font = ENGLISH_FONTS.get(font_key, ENGLISH_FONTS["roboto"])["value"]
         line_height = LINE_HEIGHTS[session.get("custom_line_height", "normal")]["value"]
         page_margin = PAGE_MARGINS[session.get("custom_page_margin", "medium")]["value"]
-        header_style_key = session.get("custom_header_style", "colored")
-        header_color = HEADER_STYLES[header_style_key]["color"]
-        if header_color == "auto":
-            header_color = a
-        header_size = HEADER_STYLES[header_style_key]["size"]
-        show_hf = False   # الترويسة مخفية دائماً
+        title_style_key = session.get("custom_header_style", "formal")
+        show_hf = False
     else:
         tc = TEMPLATES[template_name]
         p, a, bg, bg2 = tc["primary"], tc["accent"], tc["bg"], tc["bg2"]
@@ -999,9 +995,14 @@ def render_html(report: DynamicReport, session: dict) -> str:
         font = lang["font"]
         line_height = "1.6"
         page_margin = "1.2cm"
-        header_color = p
-        header_size = "22px"
-        show_hf = False   # الترويسة مخفية دائماً
+        title_style_key = "classic"
+        show_hf = False
+
+    # شكل العنوان الرئيسي
+    hs = HEADER_STYLES[title_style_key]
+    title_color = a if hs["color"] == "auto" else hs["color"]
+    title_size  = hs["size"]
+    title_style = hs["style"]
 
     tc_dict = {"primary": p, "accent": a, "bg": bg, "bg2": bg2}
     dir_ = lang["dir"]
@@ -1087,6 +1088,32 @@ def render_html(report: DynamicReport, session: dict) -> str:
 
     blocks_html = "\n".join(render_block(bl, tc_dict, lang) for bl in report.blocks)
 
+    # بناء HTML العنوان حسب الشكل المختار
+    if title_style == "formal":
+        title_html = (
+            f'<div style="text-align:center;margin-bottom:22px;padding-bottom:4px;">'
+            f'<div style="height:3px;background:{p};margin-bottom:2px;border-radius:2px;"></div>'
+            f'<div style="height:1px;background:{a};margin-bottom:12px;"></div>'
+            f'<h1 style="color:{p};">{esc(report.title)}</h1>'
+            f'<div style="height:1px;background:{a};margin-top:12px;"></div>'
+            f'<div style="height:3px;background:{p};margin-top:2px;border-radius:2px;"></div>'
+            f'</div>'
+        )
+    elif title_style == "classic":
+        title_html = (
+            f'<div style="text-align:center;margin-bottom:24px;'
+            f'padding-bottom:14px;border-bottom:2px solid {a};">'
+            f'<h1 style="color:{title_color};">{esc(report.title)}</h1>'
+            f'</div>'
+        )
+    else:  # modern
+        title_html = (
+            f'<div style="text-align:center;margin-bottom:24px;'
+            f'background:{p};padding:16px 20px;border-radius:6px;">'
+            f'<h1 style="color:#ffffff;">{esc(report.title)}</h1>'
+            f'</div>'
+        )
+
     return f"""<!DOCTYPE html>
 <html lang="{lang['lang_attr']}" dir="{dir_}">
 <head>
@@ -1114,8 +1141,8 @@ def render_html(report: DynamicReport, session: dict) -> str:
     word-spacing: 0.04em;
   }}
   p   {{ text-align: justify; margin: 0 0 10px 0; font-size: 1em; }}
-  h1  {{ font-size: {header_size} !important; text-align: center; color: {header_color};
-         margin: 0 0 6px 0; font-weight: 800; letter-spacing: 0.01em; }}
+  h1  {{ font-size: {title_size} !important; text-align: center;
+         margin: 0; font-weight: 800; letter-spacing: 0.01em; }}
   h2  {{ font-size: 1.05em !important; text-align: {align}; font-weight: 700; margin: 0; }}
   li  {{ text-align: {align}; font-size: 1em; }}
   td, th {{ font-size: 0.95em; }}
@@ -1128,9 +1155,7 @@ def render_html(report: DynamicReport, session: dict) -> str:
 
 {prof_top}
 
-<div style="text-align:center;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid {a};">
-  <h1>{esc(report.title)}</h1>
-</div>
+{title_html}
 
 <div style="background:{box_bg};padding:16px 20px;border-radius:6px;
             margin:0 0 20px 0;{b_side}:4px solid {a};
@@ -1258,17 +1283,13 @@ def comparison_keyboard():
 
 # ------------------- دالة مساعدة لنص الطابور -------------------
 def build_queue_text(session: dict, pos: int) -> str:
-    lang_name = LANGUAGES[session.get("language", "ar")]["name"]
-    depth_name = DEPTH_OPTIONS[session.get("depth", "medium")]["name"]
-    tpl_name = "🎨 مخصص" if session.get("custom_mode") else TEMPLATES.get(session.get("template", "emerald"), {}).get("name", "")
-    safe_topic = session["topic"].replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
     if pos == 1:
-        status = "✍️ 👻 <b>الشبح يكتب تقريرك الآن!</b>"
+        status = "✍️ 👻 <b>الشبح يكتب تقريرك الآن...</b>"
     else:
-        status = f"⏳ <b>في الطابور — الترتيب {pos}</b>\n✍️ 👻 <b>الشبح يكتب تقريرك قريباً!</b>"
-    tip = "\n\n💡 <i>نصيحة: جرّب خيار التخصيص الكامل لتقرير فريد من نوعه ✨</i>"
-    patience = "\n⏱ <i>قد يستغرق الإنشاء عدة دقائق، الجودة تستحق الانتظار! ☕</i>"
-    return f"{status}\n\n📝 <b>الموضوع:</b> <i>{safe_topic}</i>\n🌐 {lang_name}  |  📏 {depth_name}  |  🎨 {tpl_name}{patience}{tip}"
+        status = f"⏳ <b>في الطابور — الترتيب {pos}</b>\n✍️ 👻 <b>الشبح يكتب تقريرك قريباً...</b>"
+    patience = "\n\n⏱ <b>قد يستغرق الإنشاء عدة دقائق، الجودة تستحق الانتظار! ☕</b>"
+    tip = "\n\n✨ <b>نصيحة: جرّب خيار التخصيص الكامل لتقرير فريد من نوعه!</b>"
+    return f"{status}{patience}{tip}"
 
 
 # ------------------- معالجات التيليجرام -------------------
@@ -1523,13 +1544,13 @@ async def style_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         session["custom_color_key"] = "royal_blue"
         session["custom_line_height"] = "normal"
         session["custom_page_margin"] = "medium"
-        session["custom_header_style"] = "colored"
+        session["custom_header_style"] = "formal"
         session["include_pros_cons"] = True
         session["include_tables"] = True
         session["state"] = "choosing_font_size"
         await query.edit_message_text(
             "🎨 <b>رحلة التخصيص بدأت! 👻</b>\n\n"
-            "📐 <b>الخطوة 1 من 7 — حجم الخط:</b>\n"
+            "📐 <b>الخطوة 1 من 8 — حجم الخط:</b>\n"
             "اختر الحجم الذي يريح عينيك 👇",
             reply_markup=font_size_keyboard(), parse_mode='HTML'
         )
@@ -1552,7 +1573,7 @@ async def font_size_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang_key = session.get("language", "ar")
     await query.edit_message_text(
         f"✅ <b>الحجم:</b> {CUSTOM_FONT_SIZES[key]['label']}\n\n"
-        "✍️ <b>الخطوة 2 من 7 — نوع الخط:</b>\n"
+        "✍️ <b>الخطوة 2 من 8 — نوع الخط:</b>\n"
         "اختر الخط المناسب 👇",
         reply_markup=font_keyboard_for_language(lang_key), parse_mode='HTML'
     )
@@ -1574,7 +1595,7 @@ async def font_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["state"] = "choosing_colors"
     await query.edit_message_text(
         f"✅ <b>الخط:</b> {CUSTOM_FONTS[key]['label']}\n\n"
-        "🎨 <b>الخطوة 3 من 7 — نظام الألوان:</b>\n"
+        "🎨 <b>الخطوة 3 من 8 — نظام الألوان:</b>\n"
         "اختر الروح البصرية لتقريرك 👇",
         reply_markup=colors_keyboard(), parse_mode='HTML'
     )
@@ -1596,7 +1617,7 @@ async def colors_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["state"] = "choosing_line_height"
     await query.edit_message_text(
         f"✅ <b>الألوان:</b> {CUSTOM_COLORS[key]['label']}\n\n"
-        "📏 <b>الخطوة 4 من 7 — تباعد الأسطر:</b>\n"
+        "📏 <b>الخطوة 4 من 8 — تباعد الأسطر:</b>\n"
         "اختر المسافة بين السطور 👇",
         reply_markup=line_height_keyboard(), parse_mode='HTML'
     )
@@ -1618,7 +1639,7 @@ async def line_height_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     session["state"] = "choosing_page_margin"
     await query.edit_message_text(
         f"✅ <b>تباعد الأسطر:</b> {LINE_HEIGHTS[key]['label']}\n\n"
-        "📐 <b>الخطوة 5 من 7 — هوامش الصفحة:</b>\n"
+        "📐 <b>الخطوة 5 من 8 — هوامش الصفحة:</b>\n"
         "اختر حجم الهوامش 👇",
         reply_markup=page_margin_keyboard(), parse_mode='HTML'
     )
@@ -1640,7 +1661,7 @@ async def page_margin_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     session["state"] = "choosing_pros_cons"
     await query.edit_message_text(
         f"✅ <b>الهوامش:</b> {PAGE_MARGINS[key]['label']}\n\n"
-        "✅❌ <b>الخطوة 6 من 7 — المزايا والعيوب:</b>\n"
+        "✅❌ <b>الخطوة 6 من 8 — المزايا والعيوب:</b>\n"
         "هل تريد تضمين أقسام المزايا والعيوب في التقرير؟\n"
         "<i>تُضاف كجداول مقارنة جانبية</i>",
         reply_markup=pros_cons_keyboard(), parse_mode='HTML'
@@ -1664,7 +1685,7 @@ async def pros_cons_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     label = "✅ نعم" if session["include_pros_cons"] else "❌ لا"
     await query.edit_message_text(
         f"✅ <b>المزايا/العيوب:</b> {label}\n\n"
-        "📊 <b>الخطوة 7 من 7 — الجداول:</b>\n"
+        "📊 <b>الخطوة 7 من 8 — الجداول:</b>\n"
         "هل تريد تضمين جداول في التقرير؟\n"
         "<i>تشمل: جداول البيانات، جداول المقارنة، الإحصائيات</i>",
         reply_markup=tables_keyboard(), parse_mode='HTML'
@@ -1684,10 +1705,32 @@ async def tables_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     session = user_sessions[user_id]
     session["include_tables"] = (choice == "tbl_yes")
-    session["state"] = "asking_comparison"
+    session["state"] = "choosing_header_style"
     label = "✅ نعم" if session["include_tables"] else "❌ لا"
     await query.edit_message_text(
         f"✅ <b>الجداول:</b> {label}\n\n"
+        "🎨 <b>الخطوة 8 من 8 — شكل العنوان الرئيسي:</b>\n"
+        "اختر كيف يظهر عنوان تقريرك 👇",
+        reply_markup=header_style_keyboard(), parse_mode='HTML'
+    )
+
+
+async def header_style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    key = query.data.replace("hs_", "")
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية.")
+        return
+    if user_sessions[user_id].get("state") != "choosing_header_style":
+        await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
+        return
+    session = user_sessions[user_id]
+    session["custom_header_style"] = key
+    session["state"] = "asking_comparison"
+    await query.edit_message_text(
+        f"✅ <b>شكل العنوان:</b> {HEADER_STYLES[key]['label']}\n\n"
         "📊 <b>هل تريد إضافة جدول مقارنة خاص في التقرير؟</b>\n"
         "<i>مثال: مقارنة Python مع Java، أو الطاقة الشمسية مع النووية...</i>",
         reply_markup=comparison_keyboard(), parse_mode='HTML'
@@ -2187,6 +2230,7 @@ if __name__ == '__main__':
         main_app.add_handler(CallbackQueryHandler(page_margin_callback, pattern=r'^pm_'))
         main_app.add_handler(CallbackQueryHandler(pros_cons_callback,   pattern=r'^pc_'))
         main_app.add_handler(CallbackQueryHandler(tables_callback,      pattern=r'^tbl_'))
+        main_app.add_handler(CallbackQueryHandler(header_style_callback,pattern=r'^hs_'))
         main_app.add_handler(CallbackQueryHandler(comp_yes_callback,    pattern=r'^comp_yes$'))
         main_app.add_handler(CallbackQueryHandler(comp_no_callback,     pattern=r'^comp_no$'))
         main_app.add_error_handler(error_handler)
