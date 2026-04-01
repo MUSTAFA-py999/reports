@@ -69,13 +69,19 @@ def _download_fonts():
 
 _download_fonts()
 
+_font_face_css_cache: str = None
+
 def _font_face_css() -> str:
+    global _font_face_css_cache
+    if _font_face_css_cache is not None:
+        return _font_face_css_cache
     css = ""
     for name in _FONTS_TO_DOWNLOAD:
         path = os.path.join(FONTS_DIR, f"{name.replace(' ','_')}.ttf")
         if os.path.exists(path):
             css += f"@font-face{{font-family:'{name}';src:url('file://{path}');}}\n"
-    return css
+    _font_face_css_cache = css
+    return _font_face_css_cache
 
 flask_app = Flask(__name__)
 
@@ -111,7 +117,7 @@ async def queue_worker(app):
                     queue_positions[uid] -= 1
 
             try:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 pdf_bytes, title = await loop.run_in_executor(None, generate_report, session)
 
                 lang_name = LANGUAGES[session.get("language", "ar")]["name"]
@@ -694,7 +700,7 @@ def generate_report(session: dict):
                 best_report.conclusion   = truncate_to_sentences(best_report.conclusion, 1)
                 logger.warning("⚠️ Using closest report outside target range")
             else:
-                raise Exception("Failed to generate valid report after 5 attempts")
+                raise Exception("Failed to generate valid report after 2 attempts")
 
         html_str = render_html(best_report, session)
         pdf_bytes = WeasyHTML(string=html_str).write_pdf()
@@ -1194,28 +1200,35 @@ def lang_keyboard():
     ])
 
 def depth_keyboard():
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton(v["name"], callback_data=f"depth_{k}")]
         for k, v in DEPTH_OPTIONS.items()
-    ])
+    ]
+    rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_title")])
+    return InlineKeyboardMarkup(rows)
 
 def style_mode_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎭 قوالب جاهزة",   callback_data="style_preset")],
         [InlineKeyboardButton("🎨 تخصيص كامل ✨", callback_data="style_custom")],
+        [InlineKeyboardButton("🔙 رجوع",          callback_data="back_choosing_depth")],
     ])
 
 def template_keyboard():
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton(v["name"], callback_data=f"tpl_{k}")]
         for k, v in TEMPLATES.items()
-    ])
+    ]
+    rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_style_mode")])
+    return InlineKeyboardMarkup(rows)
 
 def font_size_keyboard():
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton(v["label"], callback_data=f"fsize_{k}")]
         for k, v in CUSTOM_FONT_SIZES.items()
-    ])
+    ]
+    rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_style_mode")])
+    return InlineKeyboardMarkup(rows)
 
 def font_keyboard_for_language(lang_key):
     fonts = get_fonts_by_language(lang_key)
@@ -1226,6 +1239,7 @@ def font_keyboard_for_language(lang_key):
         if i + 1 < len(items):
             row.append(InlineKeyboardButton(items[i+1][1]["label"], callback_data=f"cfont_{items[i+1][0]}"))
         rows.append(row)
+    rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_font_size")])
     return InlineKeyboardMarkup(rows)
 
 def colors_keyboard():
@@ -1236,37 +1250,46 @@ def colors_keyboard():
         if i + 1 < len(items):
             row.append(InlineKeyboardButton(items[i+1][1]["label"], callback_data=f"color_{items[i+1][0]}"))
         rows.append(row)
+    rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_font")])
     return InlineKeyboardMarkup(rows)
 
 def line_height_keyboard():
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton(v["label"], callback_data=f"lh_{k}")]
         for k, v in LINE_HEIGHTS.items()
-    ])
+    ]
+    rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_colors")])
+    return InlineKeyboardMarkup(rows)
 
 def page_margin_keyboard():
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton(v["label"], callback_data=f"pm_{k}")]
         for k, v in PAGE_MARGINS.items()
-    ])
+    ]
+    rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_line_height")])
+    return InlineKeyboardMarkup(rows)
 
 def pros_cons_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ نعم، أضف مزايا وعيوب", callback_data="pc_yes")],
         [InlineKeyboardButton("❌ لا، بدون مزايا/عيوب",  callback_data="pc_no")],
+        [InlineKeyboardButton("🔙 رجوع",                 callback_data="back_choosing_page_margin")],
     ])
 
 def tables_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 نعم، أضف جداول",   callback_data="tbl_yes")],
         [InlineKeyboardButton("❌ لا، بدون جداول",    callback_data="tbl_no")],
+        [InlineKeyboardButton("🔙 رجوع",             callback_data="back_choosing_pros_cons")],
     ])
 
 def header_style_keyboard():
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton(v["label"], callback_data=f"hs_{k}")]
         for k, v in HEADER_STYLES.items()
-    ])
+    ]
+    rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_tables")])
+    return InlineKeyboardMarkup(rows)
 
 def show_header_keyboard():
     return InlineKeyboardMarkup([
@@ -1278,6 +1301,7 @@ def comparison_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 نعم، أضف جدول مقارنة!", callback_data="comp_yes")],
         [InlineKeyboardButton("❌ لا شكراً",               callback_data="comp_no")],
+        [InlineKeyboardButton("🔙 رجوع",                  callback_data="back_choosing_header_style")],
     ])
 
 
@@ -1293,6 +1317,95 @@ def build_queue_text(session: dict, pos: int) -> str:
 
 
 # ------------------- معالجات التيليجرام -------------------
+async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج زر الرجوع في خطوات التخصيص"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    target = query.data.replace("back_", "")
+
+    if user_id not in user_sessions:
+        await query.edit_message_text("❌ الجلسة منتهية. أرسل موضوعاً جديداً.")
+        return
+
+    session = user_sessions[user_id]
+    session["state"] = target
+
+    if target == "choosing_title":
+        session.pop("custom_title", None)
+        await query.edit_message_text(
+            "📌 <b>هل تريد تحديد عنوان للتقرير؟</b>\n"
+            "<i>اكتب العنوان، أو دع الشبح يختاره 👇</i>",
+            reply_markup=title_keyboard(), parse_mode='HTML'
+        )
+    elif target == "choosing_depth":
+        await query.edit_message_text(
+            "📏 <b>اختر عمق التقرير:</b>",
+            reply_markup=depth_keyboard(), parse_mode='HTML'
+        )
+    elif target == "choosing_style_mode":
+        await query.edit_message_text(
+            "🎨 <b>كيف تريد تصميم تقريرك؟</b>\n\n"
+            "🎭 <b>قوالب جاهزة</b> — 6 قوالب احترافية\n"
+            "✨ <b>تخصيص كامل</b> — خط، ألوان، مقارنة خاصة",
+            reply_markup=style_mode_keyboard(), parse_mode='HTML'
+        )
+    elif target == "choosing_template":
+        await query.edit_message_text(
+            "🎭 <b>اختر قالباً من مجموعة Repooreto:</b>",
+            reply_markup=template_keyboard(), parse_mode='HTML'
+        )
+    elif target == "choosing_font_size":
+        await query.edit_message_text(
+            "📐 <b>الخطوة 1 من 8 — حجم الخط:</b>\n"
+            "اختر الحجم الذي يريح عينيك 👇",
+            reply_markup=font_size_keyboard(), parse_mode='HTML'
+        )
+    elif target == "choosing_font":
+        lang_key = session.get("language", "ar")
+        await query.edit_message_text(
+            "✍️ <b>الخطوة 2 من 8 — نوع الخط:</b>\n"
+            "اختر الخط المناسب 👇",
+            reply_markup=font_keyboard_for_language(lang_key), parse_mode='HTML'
+        )
+    elif target == "choosing_colors":
+        await query.edit_message_text(
+            "🎨 <b>الخطوة 3 من 8 — نظام الألوان:</b>\n"
+            "اختر الروح البصرية لتقريرك 👇",
+            reply_markup=colors_keyboard(), parse_mode='HTML'
+        )
+    elif target == "choosing_line_height":
+        await query.edit_message_text(
+            "📏 <b>الخطوة 4 من 8 — تباعد الأسطر:</b>\n"
+            "اختر المسافة بين السطور 👇",
+            reply_markup=line_height_keyboard(), parse_mode='HTML'
+        )
+    elif target == "choosing_page_margin":
+        await query.edit_message_text(
+            "📐 <b>الخطوة 5 من 8 — هوامش الصفحة:</b>\n"
+            "اختر حجم الهوامش 👇",
+            reply_markup=page_margin_keyboard(), parse_mode='HTML'
+        )
+    elif target == "choosing_pros_cons":
+        await query.edit_message_text(
+            "✅❌ <b>الخطوة 6 من 8 — المزايا والعيوب:</b>\n"
+            "هل تريد تضمين أقسام المزايا والعيوب في التقرير؟",
+            reply_markup=pros_cons_keyboard(), parse_mode='HTML'
+        )
+    elif target == "choosing_tables":
+        await query.edit_message_text(
+            "📊 <b>الخطوة 7 من 8 — الجداول:</b>\n"
+            "هل تريد تضمين جداول في التقرير؟",
+            reply_markup=tables_keyboard(), parse_mode='HTML'
+        )
+    elif target == "choosing_header_style":
+        await query.edit_message_text(
+            "🎨 <b>الخطوة 8 من 8 — شكل العنوان الرئيسي:</b>\n"
+            "اختر كيف يظهر عنوان تقريرك 👇",
+            reply_markup=header_style_keyboard(), parse_mode='HTML'
+        )
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id in user_sessions:
@@ -1471,7 +1584,7 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML'
     )
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         questions = await loop.run_in_executor(None, generate_dynamic_questions, session["topic"], lang)
         if not questions:
             raise ValueError("no questions")
@@ -1808,19 +1921,14 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
-# ------------------- بدء التشغيل -------------------
-async def post_init(app):
-    global report_queue
-    report_queue = asyncio.Queue()
-    asyncio.create_task(queue_worker(app))
-    logger.info("✅ Queue worker started")
-
 
 # ═══════════════════════════════════════════════════════════════
 # نظام الاشتراكات — PostgreSQL (Supabase)
 # ═══════════════════════════════════════════════════════════════
 import psycopg2
 import psycopg2.extras
+from psycopg2.pool import ThreadedConnectionPool
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 FREE_LIMIT = 3
@@ -1829,8 +1937,29 @@ ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "0").split(",") if x.strip()
 MAIN_BOT_USERNAME = os.getenv("MAIN_BOT_USERNAME", "YourMainBot")
 
 
+_db_pool: ThreadedConnectionPool = None
+
+def _get_db_pool() -> ThreadedConnectionPool:
+    global _db_pool
+    if _db_pool is None:
+        _db_pool = ThreadedConnectionPool(
+            minconn=1, maxconn=10,
+            dsn=os.getenv("DATABASE_URL"),
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+    return _db_pool
+
+@contextmanager
 def _db_conn():
-    return psycopg2.connect(os.getenv("DATABASE_URL"), cursor_factory=psycopg2.extras.RealDictCursor)
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
 
 
 def _init_db():
@@ -2233,6 +2362,7 @@ if __name__ == '__main__':
         main_app.add_handler(CallbackQueryHandler(header_style_callback,pattern=r'^hs_'))
         main_app.add_handler(CallbackQueryHandler(comp_yes_callback,    pattern=r'^comp_yes$'))
         main_app.add_handler(CallbackQueryHandler(comp_no_callback,     pattern=r'^comp_no$'))
+        main_app.add_handler(CallbackQueryHandler(back_callback,        pattern=r'^back_'))
         main_app.add_error_handler(error_handler)
 
         admin_app = ApplicationBuilder().token(admin_token).build()
