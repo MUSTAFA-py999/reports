@@ -361,6 +361,18 @@ DEPTH_OPTIONS = {
     "extended": {"name": "📖 موسّع (7+ صفحات)",   "pages": 8,  "blocks_min": 10, "blocks_max": 14},
 }
 
+# ------------------- قيود الخطة المجانية -------------------
+FREE_DEPTHS        = {"medium"}
+FREE_FONT_SIZES    = {"medium"}
+FREE_FONTS_AR      = {"cairo"}
+FREE_FONTS_EN      = {"roboto"}
+FREE_COLORS        = {"royal_blue", "slate", "crimson"}
+FREE_MARGINS       = {"small", "medium"}
+FREE_HEADER_STYLES = {"formal"}
+FREE_TEMPLATES     = {"emerald", "minimal", "dark_elegant"}
+
+LOCK = "🔒 "   # بادئة الأقفال
+
 # ------------------- مصفوفة كلمات الصفحة الدقيقة -------------------
 # الحساب: A4 (210×297mm) — كل تركيبة (حجم_خط × تباعد_أسطر × هامش)
 # المعادلة: words_per_page = (content_h / (font_mm × lh)) × (content_w / (font_mm × 0.58)) / 5.5 × 0.62
@@ -1199,11 +1211,13 @@ def lang_keyboard():
         for k, v in LANGUAGES.items()
     ])
 
-def depth_keyboard():
-    rows = [
-        [InlineKeyboardButton(v["name"], callback_data=f"depth_{k}")]
-        for k, v in DEPTH_OPTIONS.items()
-    ]
+def depth_keyboard(is_free: bool = False):
+    def _btn(k, v):
+        locked = is_free and k not in FREE_DEPTHS
+        return InlineKeyboardButton((LOCK + v["name"]) if locked else v["name"], callback_data=f"depth_{k}")
+    free_rows    = [[_btn(k, v)] for k, v in DEPTH_OPTIONS.items() if k in FREE_DEPTHS]
+    premium_rows = [[_btn(k, v)] for k, v in DEPTH_OPTIONS.items() if k not in FREE_DEPTHS]
+    rows = free_rows + premium_rows
     rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_title")])
     return InlineKeyboardMarkup(rows)
 
@@ -1214,41 +1228,56 @@ def style_mode_keyboard():
         [InlineKeyboardButton("🔙 رجوع",          callback_data="back_choosing_depth")],
     ])
 
-def template_keyboard():
-    rows = [
-        [InlineKeyboardButton(v["name"], callback_data=f"tpl_{k}")]
-        for k, v in TEMPLATES.items()
-    ]
+def template_keyboard(is_free: bool = False):
+    def _btn(k, v):
+        locked = is_free and k not in FREE_TEMPLATES
+        return InlineKeyboardButton((LOCK + v["name"]) if locked else v["name"], callback_data=f"tpl_{k}")
+    free_rows    = [[_btn(k, v)] for k, v in TEMPLATES.items() if k in FREE_TEMPLATES]
+    premium_rows = [[_btn(k, v)] for k, v in TEMPLATES.items() if k not in FREE_TEMPLATES]
+    rows = free_rows + premium_rows
     rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_style_mode")])
     return InlineKeyboardMarkup(rows)
 
-def font_size_keyboard():
-    rows = [
-        [InlineKeyboardButton(v["label"], callback_data=f"fsize_{k}")]
-        for k, v in CUSTOM_FONT_SIZES.items()
-    ]
+def font_size_keyboard(is_free: bool = False):
+    def _btn(k, v):
+        locked = is_free and k not in FREE_FONT_SIZES
+        return InlineKeyboardButton((LOCK + v["label"]) if locked else v["label"], callback_data=f"fsize_{k}")
+    free_rows    = [[_btn(k, v)] for k, v in CUSTOM_FONT_SIZES.items() if k in FREE_FONT_SIZES]
+    premium_rows = [[_btn(k, v)] for k, v in CUSTOM_FONT_SIZES.items() if k not in FREE_FONT_SIZES]
+    rows = free_rows + premium_rows
     rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_style_mode")])
     return InlineKeyboardMarkup(rows)
 
-def font_keyboard_for_language(lang_key):
+def font_keyboard_for_language(lang_key, is_free: bool = False):
     fonts = get_fonts_by_language(lang_key)
-    items = list(fonts.items())
+    free_set = FREE_FONTS_AR if lang_key == "ar" else FREE_FONTS_EN
+    def _btn(k, v):
+        locked = is_free and k not in free_set
+        return InlineKeyboardButton((LOCK + v["label"]) if locked else v["label"], callback_data=f"cfont_{k}")
+    free_items    = [(k, v) for k, v in fonts.items() if k in free_set]
+    premium_items = [(k, v) for k, v in fonts.items() if k not in free_set]
+    all_items = free_items + premium_items
     rows = []
-    for i in range(0, len(items), 2):
-        row = [InlineKeyboardButton(items[i][1]["label"], callback_data=f"cfont_{items[i][0]}")]
-        if i + 1 < len(items):
-            row.append(InlineKeyboardButton(items[i+1][1]["label"], callback_data=f"cfont_{items[i+1][0]}"))
+    for i in range(0, len(all_items), 2):
+        row = [_btn(*all_items[i])]
+        if i + 1 < len(all_items):
+            row.append(_btn(*all_items[i + 1]))
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_font_size")])
     return InlineKeyboardMarkup(rows)
 
-def colors_keyboard():
-    items = list(CUSTOM_COLORS.items())
+def colors_keyboard(is_free: bool = False):
+    def _btn(k, v):
+        locked = is_free and k not in FREE_COLORS
+        return InlineKeyboardButton((LOCK + v["label"]) if locked else v["label"], callback_data=f"color_{k}")
+    free_items    = [(k, v) for k, v in CUSTOM_COLORS.items() if k in FREE_COLORS]
+    premium_items = [(k, v) for k, v in CUSTOM_COLORS.items() if k not in FREE_COLORS]
+    all_items = free_items + premium_items
     rows = []
-    for i in range(0, len(items), 2):
-        row = [InlineKeyboardButton(items[i][1]["label"], callback_data=f"color_{items[i][0]}")]
-        if i + 1 < len(items):
-            row.append(InlineKeyboardButton(items[i+1][1]["label"], callback_data=f"color_{items[i+1][0]}"))
+    for i in range(0, len(all_items), 2):
+        row = [_btn(*all_items[i])]
+        if i + 1 < len(all_items):
+            row.append(_btn(*all_items[i + 1]))
         rows.append(row)
     rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_font")])
     return InlineKeyboardMarkup(rows)
@@ -1261,11 +1290,13 @@ def line_height_keyboard():
     rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_colors")])
     return InlineKeyboardMarkup(rows)
 
-def page_margin_keyboard():
-    rows = [
-        [InlineKeyboardButton(v["label"], callback_data=f"pm_{k}")]
-        for k, v in PAGE_MARGINS.items()
-    ]
+def page_margin_keyboard(is_free: bool = False):
+    def _btn(k, v):
+        locked = is_free and k not in FREE_MARGINS
+        return InlineKeyboardButton((LOCK + v["label"]) if locked else v["label"], callback_data=f"pm_{k}")
+    free_rows    = [[_btn(k, v)] for k, v in PAGE_MARGINS.items() if k in FREE_MARGINS]
+    premium_rows = [[_btn(k, v)] for k, v in PAGE_MARGINS.items() if k not in FREE_MARGINS]
+    rows = free_rows + premium_rows
     rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_line_height")])
     return InlineKeyboardMarkup(rows)
 
@@ -1283,11 +1314,13 @@ def tables_keyboard():
         [InlineKeyboardButton("🔙 رجوع",             callback_data="back_choosing_pros_cons")],
     ])
 
-def header_style_keyboard():
-    rows = [
-        [InlineKeyboardButton(v["label"], callback_data=f"hs_{k}")]
-        for k, v in HEADER_STYLES.items()
-    ]
+def header_style_keyboard(is_free: bool = False):
+    def _btn(k, v):
+        locked = is_free and k not in FREE_HEADER_STYLES
+        return InlineKeyboardButton((LOCK + v["label"]) if locked else v["label"], callback_data=f"hs_{k}")
+    free_rows    = [[_btn(k, v)] for k, v in HEADER_STYLES.items() if k in FREE_HEADER_STYLES]
+    premium_rows = [[_btn(k, v)] for k, v in HEADER_STYLES.items() if k not in FREE_HEADER_STYLES]
+    rows = free_rows + premium_rows
     rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_choosing_tables")])
     return InlineKeyboardMarkup(rows)
 
@@ -1318,7 +1351,7 @@ def build_queue_text(session: dict, pos: int) -> str:
 
 # ------------------- معالجات التيليجرام -------------------
 async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج زر الرجوع في خطوات التخصيص"""
+    """معالج زر الرجوع في خطوات الاختيار"""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
@@ -1330,6 +1363,7 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     session = user_sessions[user_id]
     session["state"] = target
+    is_free = not is_premium_user(user_id)
 
     if target == "choosing_title":
         session.pop("custom_title", None)
@@ -1341,7 +1375,7 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif target == "choosing_depth":
         await query.edit_message_text(
             "📏 <b>اختر عمق التقرير:</b>",
-            reply_markup=depth_keyboard(), parse_mode='HTML'
+            reply_markup=depth_keyboard(is_free), parse_mode='HTML'
         )
     elif target == "choosing_style_mode":
         await query.edit_message_text(
@@ -1353,26 +1387,26 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif target == "choosing_template":
         await query.edit_message_text(
             "🎭 <b>اختر قالباً من مجموعة Repooreto:</b>",
-            reply_markup=template_keyboard(), parse_mode='HTML'
+            reply_markup=template_keyboard(is_free), parse_mode='HTML'
         )
     elif target == "choosing_font_size":
         await query.edit_message_text(
             "📐 <b>الخطوة 1 من 8 — حجم الخط:</b>\n"
             "اختر الحجم الذي يريح عينيك 👇",
-            reply_markup=font_size_keyboard(), parse_mode='HTML'
+            reply_markup=font_size_keyboard(is_free), parse_mode='HTML'
         )
     elif target == "choosing_font":
         lang_key = session.get("language", "ar")
         await query.edit_message_text(
             "✍️ <b>الخطوة 2 من 8 — نوع الخط:</b>\n"
             "اختر الخط المناسب 👇",
-            reply_markup=font_keyboard_for_language(lang_key), parse_mode='HTML'
+            reply_markup=font_keyboard_for_language(lang_key, is_free), parse_mode='HTML'
         )
     elif target == "choosing_colors":
         await query.edit_message_text(
             "🎨 <b>الخطوة 3 من 8 — نظام الألوان:</b>\n"
             "اختر الروح البصرية لتقريرك 👇",
-            reply_markup=colors_keyboard(), parse_mode='HTML'
+            reply_markup=colors_keyboard(is_free), parse_mode='HTML'
         )
     elif target == "choosing_line_height":
         await query.edit_message_text(
@@ -1384,7 +1418,7 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "📐 <b>الخطوة 5 من 8 — هوامش الصفحة:</b>\n"
             "اختر حجم الهوامش 👇",
-            reply_markup=page_margin_keyboard(), parse_mode='HTML'
+            reply_markup=page_margin_keyboard(is_free), parse_mode='HTML'
         )
     elif target == "choosing_pros_cons":
         await query.edit_message_text(
@@ -1402,7 +1436,7 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🎨 <b>الخطوة 8 من 8 — شكل العنوان الرئيسي:</b>\n"
             "اختر كيف يظهر عنوان تقريرك 👇",
-            reply_markup=header_style_keyboard(), parse_mode='HTML'
+            reply_markup=header_style_keyboard(is_free), parse_mode='HTML'
         )
 
 
@@ -1506,9 +1540,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state == "choosing_title":
             session["custom_title"] = text
             session["state"] = "choosing_depth"
+            is_free = not is_premium_user(user_id)
             await update.message.reply_text(
                 f"✅ <b>العنوان:</b> <i>{esc(text)}</i>\n\n📏 <b>اختر عمق التقرير:</b>",
-                reply_markup=depth_keyboard(), parse_mode='HTML'
+                reply_markup=depth_keyboard(is_free), parse_mode='HTML'
             )
             return
 
@@ -1562,9 +1597,10 @@ async def title_auto_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     session.pop("custom_title", None)
     session["state"] = "choosing_depth"
+    is_free = not is_premium_user(user_id)
     await query.edit_message_text(
         "👻 <b>سيختار الشبح العنوان المناسب!</b>\n\n📏 <b>اختر عمق التقرير:</b>",
-        reply_markup=depth_keyboard(), parse_mode='HTML'
+        reply_markup=depth_keyboard(is_free), parse_mode='HTML'
     )
 
 
@@ -1603,27 +1639,36 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session["dynamic_questions"] = []
         session["answers"] = []
         session["state"] = "choosing_depth"
+        is_free = not is_premium_user(user_id)
         await query.edit_message_text(
             "⚠️ تعذّر توليد الأسئلة. سنكمل مباشرةً.\n\n📏 <b>اختر عمق التقرير:</b>",
-            reply_markup=depth_keyboard(), parse_mode='HTML'
+            reply_markup=depth_keyboard(is_free), parse_mode='HTML'
         )
 
 
 async def depth_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     depth = query.data.replace("depth_", "")
     if user_id not in user_sessions:
+        await query.answer()
         await query.edit_message_text("❌ الجلسة منتهية.")
         return
     if user_sessions[user_id].get("state") != "choosing_depth":
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
+    is_free = not is_premium_user(user_id)
+    if is_free and depth not in FREE_DEPTHS:
+        admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
+        await query.answer(
+            f"🔒 هذا الخيار للمشتركين فقط!\nتواصل مع @{admin_user} للاشتراك.",
+            show_alert=True
+        )
+        return
+    await query.answer()
     user_sessions[user_id]["depth"] = depth
     user_sessions[user_id]["state"] = "choosing_style_mode"
     await query.edit_message_text(
-        f"✅ <b>العمق:</b> {DEPTH_OPTIONS[depth]['name']}\n\n"
         "🎨 <b>كيف تريد تصميم تقريرك؟</b>\n\n"
         "🎭 <b>قوالب جاهزة</b> — 6 قوالب احترافية جاهزة للاستخدام\n"
         "✨ <b>تخصيص كامل</b> — اختر الخط، الألوان، وأضف مقارنة خاصة",
@@ -1643,12 +1688,13 @@ async def style_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
     session = user_sessions[user_id]
+    is_free = not is_premium_user(user_id)
     if mode == "preset":
         session["custom_mode"] = False
         session["state"] = "choosing_template"
         await query.edit_message_text(
             "🎭 <b>اختر قالباً من مجموعة Repooreto:</b>",
-            reply_markup=template_keyboard(), parse_mode='HTML'
+            reply_markup=template_keyboard(is_free), parse_mode='HTML'
         )
     else:
         session["custom_mode"] = True
@@ -1665,71 +1711,88 @@ async def style_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             "🎨 <b>رحلة التخصيص بدأت! 👻</b>\n\n"
             "📐 <b>الخطوة 1 من 8 — حجم الخط:</b>\n"
             "اختر الحجم الذي يريح عينيك 👇",
-            reply_markup=font_size_keyboard(), parse_mode='HTML'
+            reply_markup=font_size_keyboard(is_free), parse_mode='HTML'
         )
 
 
 async def font_size_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     key = query.data.replace("fsize_", "")
     if user_id not in user_sessions:
+        await query.answer()
         await query.edit_message_text("❌ الجلسة منتهية.")
         return
     if user_sessions[user_id].get("state") != "choosing_font_size":
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
+    is_free = not is_premium_user(user_id)
+    if is_free and key not in FREE_FONT_SIZES:
+        admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
+        await query.answer(f"🔒 هذا الخيار للمشتركين فقط!\nتواصل مع @{admin_user} للاشتراك.", show_alert=True)
+        return
+    await query.answer()
     session = user_sessions[user_id]
     session["custom_font_size_key"] = key
     session["state"] = "choosing_font"
     lang_key = session.get("language", "ar")
     await query.edit_message_text(
-        f"✅ <b>الحجم:</b> {CUSTOM_FONT_SIZES[key]['label']}\n\n"
         "✍️ <b>الخطوة 2 من 8 — نوع الخط:</b>\n"
         "اختر الخط المناسب 👇",
-        reply_markup=font_keyboard_for_language(lang_key), parse_mode='HTML'
+        reply_markup=font_keyboard_for_language(lang_key, is_free), parse_mode='HTML'
     )
 
 
 async def font_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     key = query.data.replace("cfont_", "")
     if user_id not in user_sessions:
+        await query.answer()
         await query.edit_message_text("❌ الجلسة منتهية.")
         return
     if user_sessions[user_id].get("state") != "choosing_font":
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
+    is_free = not is_premium_user(user_id)
+    lang_key = user_sessions[user_id].get("language", "ar")
+    free_set = FREE_FONTS_AR if lang_key == "ar" else FREE_FONTS_EN
+    if is_free and key not in free_set:
+        admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
+        await query.answer(f"🔒 هذا الخيار للمشتركين فقط!\nتواصل مع @{admin_user} للاشتراك.", show_alert=True)
+        return
+    await query.answer()
     session = user_sessions[user_id]
     session["custom_font_key"] = key
     session["state"] = "choosing_colors"
     await query.edit_message_text(
-        f"✅ <b>الخط:</b> {CUSTOM_FONTS[key]['label']}\n\n"
         "🎨 <b>الخطوة 3 من 8 — نظام الألوان:</b>\n"
         "اختر الروح البصرية لتقريرك 👇",
-        reply_markup=colors_keyboard(), parse_mode='HTML'
+        reply_markup=colors_keyboard(is_free), parse_mode='HTML'
     )
 
 
 async def colors_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     key = query.data.replace("color_", "")
     if user_id not in user_sessions:
+        await query.answer()
         await query.edit_message_text("❌ الجلسة منتهية.")
         return
     if user_sessions[user_id].get("state") != "choosing_colors":
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
+    is_free = not is_premium_user(user_id)
+    if is_free and key not in FREE_COLORS:
+        admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
+        await query.answer(f"🔒 هذا الخيار للمشتركين فقط!\nتواصل مع @{admin_user} للاشتراك.", show_alert=True)
+        return
+    await query.answer()
     session = user_sessions[user_id]
     session["custom_color_key"] = key
     session["state"] = "choosing_line_height"
     await query.edit_message_text(
-        f"✅ <b>الألوان:</b> {CUSTOM_COLORS[key]['label']}\n\n"
         "📏 <b>الخطوة 4 من 8 — تباعد الأسطر:</b>\n"
         "اختر المسافة بين السطور 👇",
         reply_markup=line_height_keyboard(), parse_mode='HTML'
@@ -1750,30 +1813,35 @@ async def line_height_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     session = user_sessions[user_id]
     session["custom_line_height"] = key
     session["state"] = "choosing_page_margin"
+    is_free = not is_premium_user(user_id)
     await query.edit_message_text(
-        f"✅ <b>تباعد الأسطر:</b> {LINE_HEIGHTS[key]['label']}\n\n"
         "📐 <b>الخطوة 5 من 8 — هوامش الصفحة:</b>\n"
         "اختر حجم الهوامش 👇",
-        reply_markup=page_margin_keyboard(), parse_mode='HTML'
+        reply_markup=page_margin_keyboard(is_free), parse_mode='HTML'
     )
 
 
 async def page_margin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     key = query.data.replace("pm_", "")
     if user_id not in user_sessions:
+        await query.answer()
         await query.edit_message_text("❌ الجلسة منتهية.")
         return
     if user_sessions[user_id].get("state") != "choosing_page_margin":
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
+    is_free = not is_premium_user(user_id)
+    if is_free and key not in FREE_MARGINS:
+        admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
+        await query.answer(f"🔒 هذا الخيار للمشتركين فقط!\nتواصل مع @{admin_user} للاشتراك.", show_alert=True)
+        return
+    await query.answer()
     session = user_sessions[user_id]
     session["custom_page_margin"] = key
     session["state"] = "choosing_pros_cons"
     await query.edit_message_text(
-        f"✅ <b>الهوامش:</b> {PAGE_MARGINS[key]['label']}\n\n"
         "✅❌ <b>الخطوة 6 من 8 — المزايا والعيوب:</b>\n"
         "هل تريد تضمين أقسام المزايا والعيوب في التقرير؟\n"
         "<i>تُضاف كجداول مقارنة جانبية</i>",
@@ -1795,9 +1863,8 @@ async def pros_cons_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     session = user_sessions[user_id]
     session["include_pros_cons"] = (choice == "pc_yes")
     session["state"] = "choosing_tables"
-    label = "✅ نعم" if session["include_pros_cons"] else "❌ لا"
+    is_free = not is_premium_user(user_id)
     await query.edit_message_text(
-        f"✅ <b>المزايا/العيوب:</b> {label}\n\n"
         "📊 <b>الخطوة 7 من 8 — الجداول:</b>\n"
         "هل تريد تضمين جداول في التقرير؟\n"
         "<i>تشمل: جداول البيانات، جداول المقارنة، الإحصائيات</i>",
@@ -1819,31 +1886,35 @@ async def tables_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[user_id]
     session["include_tables"] = (choice == "tbl_yes")
     session["state"] = "choosing_header_style"
-    label = "✅ نعم" if session["include_tables"] else "❌ لا"
+    is_free = not is_premium_user(user_id)
     await query.edit_message_text(
-        f"✅ <b>الجداول:</b> {label}\n\n"
         "🎨 <b>الخطوة 8 من 8 — شكل العنوان الرئيسي:</b>\n"
         "اختر كيف يظهر عنوان تقريرك 👇",
-        reply_markup=header_style_keyboard(), parse_mode='HTML'
+        reply_markup=header_style_keyboard(is_free), parse_mode='HTML'
     )
 
 
 async def header_style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     key = query.data.replace("hs_", "")
     if user_id not in user_sessions:
+        await query.answer()
         await query.edit_message_text("❌ الجلسة منتهية.")
         return
     if user_sessions[user_id].get("state") != "choosing_header_style":
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
+    is_free = not is_premium_user(user_id)
+    if is_free and key not in FREE_HEADER_STYLES:
+        admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
+        await query.answer(f"🔒 هذا الخيار للمشتركين فقط!\nتواصل مع @{admin_user} للاشتراك.", show_alert=True)
+        return
+    await query.answer()
     session = user_sessions[user_id]
     session["custom_header_style"] = key
     session["state"] = "asking_comparison"
     await query.edit_message_text(
-        f"✅ <b>شكل العنوان:</b> {HEADER_STYLES[key]['label']}\n\n"
         "📊 <b>هل تريد إضافة جدول مقارنة خاص في التقرير؟</b>\n"
         "<i>مثال: مقارنة Python مع Java، أو الطاقة الشمسية مع النووية...</i>",
         reply_markup=comparison_keyboard(), parse_mode='HTML'
@@ -1893,15 +1964,21 @@ async def comp_no_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     tpl = query.data.replace("tpl_", "")
     if user_id not in user_sessions:
+        await query.answer()
         await query.edit_message_text("❌ الجلسة منتهية.")
         return
     if user_sessions[user_id].get("state") != "choosing_template":
         await query.answer("هذا الزر لم يعد فعالاً.", show_alert=True)
         return
+    is_free = not is_premium_user(user_id)
+    if is_free and tpl not in FREE_TEMPLATES:
+        admin_user = os.getenv("MAIN_BOT_USERNAME", "Admin")
+        await query.answer(f"🔒 هذا القالب للمشتركين فقط!\nتواصل مع @{admin_user} للاشتراك.", show_alert=True)
+        return
+    await query.answer()
     session = user_sessions[user_id]
     session["template"] = tpl
     session["custom_mode"] = False
@@ -2040,6 +2117,14 @@ def get_remaining(user_id: int) -> int:
     if u["is_active"]:
         return 999
     return max(0, FREE_LIMIT - u["used"])
+
+
+def is_premium_user(user_id: int) -> bool:
+    """يرجع True إذا كان المستخدم مشتركاً (غير مجاني)"""
+    u = _get_user(user_id)
+    if not u:
+        return False
+    return bool(u["is_active"])
 
 
 def count_report(user_id: int):
