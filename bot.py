@@ -366,8 +366,8 @@ FREE_DEPTHS        = {"medium"}
 FREE_FONT_SIZES    = {"medium"}
 FREE_FONTS_AR      = {"cairo"}
 FREE_FONTS_EN      = {"roboto"}
-FREE_COLORS        = {"royal_blue", "slate", "crimson"}
-FREE_MARGINS       = {"small", "medium"}
+FREE_COLORS        = {"royal_blue", "crimson"}
+FREE_MARGINS       = {"medium"}
 FREE_HEADER_STYLES = {"formal"}
 FREE_TEMPLATES     = {"emerald", "minimal", "dark_elegant"}
 
