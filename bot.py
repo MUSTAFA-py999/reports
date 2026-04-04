@@ -2241,15 +2241,35 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not users:
             await query.edit_message_text("لا يوجد مستخدمون بعد.", reply_markup=_BACK_KB)
             return
-        text = f"👥 <b>المستخدمون ({len(users)})</b>\n\n"
-        for u in users[:25]:
-            icon  = "✅" if u["is_active"] else ("🆓" if u["used"] < FREE_LIMIT else "🔒")
-            name  = u["username"] or u["full_name"] or "—"
-            until = str(u["expires_at"])[:10] if u["expires_at"] else "-"
-            text += f"{icon} <code>{u['user_id']}</code> | {name} | 📄{u['used']} | {until}\n"
-        if len(users) > 25:
-            text += f"\n... و{len(users)-25} آخرين"
-        await query.edit_message_text(text, reply_markup=_BACK_KB, parse_mode='HTML')
+        import csv, io
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["user_id", "username", "full_name", "used", "status", "expires_at", "joined_at"])
+        for u in users:
+            if u["is_active"]:
+                status = "مشترك"
+            elif u["used"] < FREE_LIMIT:
+                status = "تجربة"
+            else:
+                status = "منتهي"
+            writer.writerow([
+                u["user_id"],
+                u["username"] or "",
+                u["full_name"] or "",
+                u["used"],
+                status,
+                str(u["expires_at"])[:10] if u["expires_at"] else "",
+                str(u.get("joined_at", ""))[:10],
+            ])
+        csv_bytes = buf.getvalue().encode("utf-8-sig")  # utf-8-sig لدعم Excel
+        await query.edit_message_text(f"📤 جاري إرسال قائمة {len(users)} مستخدم...", reply_markup=_BACK_KB)
+        await context.bot.send_document(
+            chat_id=uid,
+            document=BytesIO(csv_bytes),
+            filename="users.csv",
+            caption=f"👥 <b>قائمة المستخدمين</b>\nالإجمالي: <b>{len(users)}</b>",
+            parse_mode='HTML'
+        )
         return
 
     # خيارات تحتاج إدخال نص
