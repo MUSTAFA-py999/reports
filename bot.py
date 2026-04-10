@@ -512,7 +512,7 @@ def get_llm():
     api_key = next(_api_key_cycle)
     logger.info(f"🔑 Using API key ending: ...{api_key[-6:]}")
     return ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash",
+        model="gemini-2.0-flash",
         temperature=0.5,
         google_api_key=api_key,
         max_retries=2
