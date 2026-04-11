@@ -2016,14 +2016,22 @@ MAIN_BOT_USERNAME = os.getenv("MAIN_BOT_USERNAME", "YourMainBot")
 
 _db_pool: ThreadedConnectionPool = None
 
+def _make_pool() -> ThreadedConnectionPool:
+    return ThreadedConnectionPool(
+        minconn=1, maxconn=10,
+        dsn=os.getenv("DATABASE_URL"),
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
+        connect_timeout=10,
+    )
+
 def _get_db_pool() -> ThreadedConnectionPool:
     global _db_pool
-    if _db_pool is None:
-        _db_pool = ThreadedConnectionPool(
-            minconn=1, maxconn=10,
-            dsn=os.getenv("DATABASE_URL"),
-            cursor_factory=psycopg2.extras.RealDictCursor
-        )
+    if _db_pool is None or _db_pool.closed:
+        _db_pool = _make_pool()
     return _db_pool
 
 @contextmanager
@@ -2031,12 +2039,26 @@ def _db_conn():
     pool = _get_db_pool()
     conn = pool.getconn()
     try:
+        # تحقق من أن الاتصال حي، وأعد الاتصال إذا انقطع
+        try:
+            conn.isolation_level  # ping خفيف
+            if conn.closed:
+                raise psycopg2.OperationalError("connection closed")
+        except Exception:
+            pool.putconn(conn, close=True)
+            conn = pool.getconn()
         yield conn
     except Exception:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         raise
     finally:
-        pool.putconn(conn)
+        try:
+            pool.putconn(conn)
+        except Exception:
+            pass
 
 
 def _init_db():
@@ -2080,7 +2102,11 @@ def _get_user(user_id: int):
 def _expire_user(user_id: int):
     with _db_conn() as c:
         with c.cursor() as cur:
-            cur.execute("UPDATE users SET is_active=0 WHERE user_id=%s", (user_id,))
+            # نضع used = FREE_LIMIT لمنع الحصول على تجربة مجانية بعد انتهاء الاشتراك
+            cur.execute(
+                "UPDATE users SET is_active=0, used=GREATEST(used, %s) WHERE user_id=%s",
+                (FREE_LIMIT, user_id)
+            )
         c.commit()
 
 
@@ -2150,7 +2176,10 @@ def sub_activate(user_id: int, days: int = SUB_DAYS) -> str:
 def sub_deactivate(user_id: int):
     with _db_conn() as c:
         with c.cursor() as cur:
-            cur.execute("UPDATE users SET is_active=0, expires_at=NULL WHERE user_id=%s", (user_id,))
+            cur.execute(
+                "UPDATE users SET is_active=0, expires_at=NULL, used=GREATEST(used, %s) WHERE user_id=%s",
+                (FREE_LIMIT, user_id)
+            )
         c.commit()
 
 
