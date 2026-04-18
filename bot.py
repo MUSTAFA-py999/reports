@@ -513,7 +513,7 @@ def get_llm():
     logger.info(f"🔑 Using API key ending: ...{api_key[-6:]}")
     return ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
-        temperature=0.2,
+        temperature=0.5,
         google_api_key=api_key,
         max_retries=2
     )
@@ -2004,7 +2004,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ═══════════════════════════════════════════════════════════════
 import psycopg2
 import psycopg2.extras
-from psycopg2.pool import ThreadedConnectionPool
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
@@ -2014,51 +2013,21 @@ ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "0").split(",") if x.strip()
 MAIN_BOT_USERNAME = os.getenv("MAIN_BOT_USERNAME", "YourMainBot")
 
 
-_db_pool: ThreadedConnectionPool = None
-
-def _make_pool() -> ThreadedConnectionPool:
-    return ThreadedConnectionPool(
-        minconn=1, maxconn=10,
-        dsn=os.getenv("DATABASE_URL"),
-        cursor_factory=psycopg2.extras.RealDictCursor,
-        keepalives=1,
-        keepalives_idle=30,
-        keepalives_interval=10,
-        keepalives_count=5,
-        connect_timeout=10,
-    )
-
-def _get_db_pool() -> ThreadedConnectionPool:
-    global _db_pool
-    if _db_pool is None or _db_pool.closed:
-        _db_pool = _make_pool()
-    return _db_pool
-
 @contextmanager
 def _db_conn():
-    pool = _get_db_pool()
-    conn = pool.getconn()
+    conn = psycopg2.connect(
+        os.getenv("DATABASE_URL"),
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        connect_timeout=10,
+    )
     try:
-        # تحقق من أن الاتصال حي، وأعد الاتصال إذا انقطع
-        try:
-            conn.isolation_level  # ping خفيف
-            if conn.closed:
-                raise psycopg2.OperationalError("connection closed")
-        except Exception:
-            pool.putconn(conn, close=True)
-            conn = pool.getconn()
         yield conn
+        conn.commit()
     except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        conn.rollback()
         raise
     finally:
-        try:
-            pool.putconn(conn)
-        except Exception:
-            pass
+        conn.close()
 
 
 def _init_db():
@@ -2075,7 +2044,6 @@ def _init_db():
                     joined_at  TIMESTAMP DEFAULT NOW()
                 )
             """)
-        c.commit()
 
 
 _init_db()
@@ -2088,7 +2056,6 @@ def register(user_id: int, username: str = "", full_name: str = ""):
                 "INSERT INTO users (user_id, username, full_name) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
                 (user_id, username, full_name)
             )
-        c.commit()
 
 
 def _get_user(user_id: int):
@@ -2107,7 +2074,6 @@ def _expire_user(user_id: int):
                 "UPDATE users SET is_active=0, used=GREATEST(used, %s) WHERE user_id=%s",
                 (FREE_LIMIT, user_id)
             )
-        c.commit()
 
 
 def check_access(user_id: int) -> tuple:
@@ -2157,7 +2123,6 @@ def count_report(user_id: int):
     with _db_conn() as c:
         with c.cursor() as cur:
             cur.execute("UPDATE users SET used = used + 1 WHERE user_id=%s", (user_id,))
-        c.commit()
 
 
 def sub_activate(user_id: int, days: int = SUB_DAYS) -> str:
@@ -2169,7 +2134,6 @@ def sub_activate(user_id: int, days: int = SUB_DAYS) -> str:
                 "UPDATE users SET is_active=1, expires_at=%s WHERE user_id=%s",
                 (expires, user_id)
             )
-        c.commit()
     return expires
 
 
@@ -2180,7 +2144,6 @@ def sub_deactivate(user_id: int):
                 "UPDATE users SET is_active=0, expires_at=NULL, used=GREATEST(used, %s) WHERE user_id=%s",
                 (FREE_LIMIT, user_id)
             )
-        c.commit()
 
 
 def sub_get_user(user_id: int):
