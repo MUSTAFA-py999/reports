@@ -239,8 +239,10 @@ LANGUAGES = {
         "font": "'Cairo', 'Arial', sans-serif",
         "intro_label": "المقدمة",
         "conclusion_label": "الخاتمة",
-        "pros_label": "✅ المزايا",
-        "cons_label": "❌ العيوب",
+        "pros_label": "+ المزايا",
+        "cons_label": "− العيوب",
+        "details_label": "التفاصيل",
+        "criterion_label": "المعيار",
         "instruction": "Write ALL content in formal Arabic (فصحى). Every word must be Arabic.",
         "q_prompt": (
             "أنت مساعد أكاديمي لطلاب الجامعة.\n"
@@ -260,8 +262,10 @@ LANGUAGES = {
         "font": "'Arial', 'Helvetica', sans-serif",
         "intro_label": "Introduction",
         "conclusion_label": "Conclusion",
-        "pros_label": "✅ Pros",
-        "cons_label": "❌ Cons",
+        "pros_label": "+ Pros",
+        "cons_label": "− Cons",
+        "details_label": "Details",
+        "criterion_label": "Criterion",
         "instruction": "Write ALL content in English. Every word must be English.",
         "q_prompt": (
             "أنت مساعد أكاديمي لطلاب الجامعة.\n"
@@ -732,8 +736,10 @@ def render_item_with_subnote(item: str, txt_color: str, accent: str) -> str:
     if sep in str(item):
         parts = str(item).split(sep, 1)
         return (
-            f'{esc(parts[0].strip())}'
-            f'<span style="color:{accent};font-size:0.88em;font-weight:normal;"> — {esc(parts[1].strip())}</span>'
+            f'<span style="font-weight:600;">{esc(parts[0].strip())}</span>'
+            f'<span style="color:#777;font-size:0.88em;display:block;'
+            f'border-right:2px solid {accent};padding-right:8px;margin-top:2px;">'
+            f'{esc(parts[1].strip())}</span>'
         )
     return esc(item)
 
@@ -838,7 +844,8 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 return (
                     f'<li style="margin-bottom:8px;line-height:1.85;">'
                     f'<span style="font-weight:700;color:#1a5e38;">{esc(pts[0].strip())}</span>'
-                    f'<br><span style="color:#2d6a4f;font-size:0.88em;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
+                    f'<span style="color:#4a7c60;font-size:0.88em;display:block;'
+                    f'{b_side}:2px solid #52b788;{p_side}:8px;margin-top:3px;">{esc(pts[1].strip())}</span></li>'
                 )
             return f'<li style="margin-bottom:8px;line-height:1.85;font-weight:600;color:#1a5e38;">{esc(x)}</li>'
 
@@ -849,7 +856,8 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 return (
                     f'<li style="margin-bottom:8px;line-height:1.85;">'
                     f'<span style="font-weight:700;color:#7b1a1a;">{esc(pts[0].strip())}</span>'
-                    f'<br><span style="color:#922b21;font-size:0.88em;{p_side}:6px;">↳ {esc(pts[1].strip())}</span></li>'
+                    f'<span style="color:#8a3a3a;font-size:0.88em;display:block;'
+                    f'{b_side}:2px solid #c53030;{p_side}:8px;margin-top:3px;">{esc(pts[1].strip())}</span></li>'
                 )
             return f'<li style="margin-bottom:8px;line-height:1.85;font-weight:600;color:#7b1a1a;">{esc(x)}</li>'
 
@@ -890,7 +898,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                 f'<table style="width:100%;border-collapse:collapse;">'
                 f'<thead><tr>'
                 f'<th style="background:#2d3748;color:#fff;padding:9px 6px;width:32px;">±</th>'
-                f'<th style="background:#2d3748;color:#fff;padding:9px 14px;text-align:{align};">التفاصيل</th>'
+                f'<th style="background:#2d3748;color:#fff;padding:9px 14px;text-align:{align};">{lang.get("details_label","Details")}</th>'
                 f'</tr></thead><tbody>{rows_html}</tbody></table>'
             )
         elif style == "C":
@@ -907,7 +915,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
             )
         else:  # D
             items_html = ""
-            for emoji, lst in [("✅", pros), ("❌", cons)]:
+            for marker, color, lst in [("+", "#1a5e38", pros), ("−", "#7b1a1a", cons)]:
                 for x in lst:
                     sep = " — "
                     if sep in str(x):
@@ -917,7 +925,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
                         t = f'<b>{esc(x)}</b>'
                     items_html += (
                         f'<div style="display:flex;gap:10px;margin-bottom:9px;align-items:flex-start;">'
-                        f'<span style="font-size:1.1em;flex-shrink:0;">{emoji}</span>'
+                        f'<span style="font-size:1em;font-weight:800;color:{color};flex-shrink:0;width:16px;text-align:center;">{marker}</span>'
                         f'<span style="line-height:1.85;">{t}</span></div>'
                     )
             inner = f'<div style="background:{bg2 if not is_dark else "#2d3748"};padding:14px 18px;">{items_html}</div>'
@@ -950,7 +958,7 @@ def render_block(b: ReportBlock, tc: dict, lang: dict) -> str:
         av = b.side_a_values or []
         bv = b.side_b_values or []
         ths = (
-            f'<th style="background:{p};color:#fff;padding:10px 14px;text-align:{align};">المعيار</th>'
+            f'<th style="background:{p};color:#fff;padding:10px 14px;text-align:{align};">{lang.get("criterion_label","Criterion")}</th>'
             f'<th style="background:{a};color:#fff;padding:10px 14px;text-align:center;">{sa}</th>'
             f'<th style="background:{p};color:#fff;padding:10px 14px;text-align:center;opacity:0.85;">{sb}</th>'
         )
